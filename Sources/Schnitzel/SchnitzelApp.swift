@@ -1,0 +1,55 @@
+//
+//  SchnitzelApp.swift
+//  Schnitzel
+//
+//  This file is part of Schnitzel.
+//
+//  Schnitzel is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Schnitzel is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Schnitzel.
+//  If not, see https://www.gnu.org/licenses/.
+//
+
+import AppKit
+import SchnitzelKit
+import SwiftUI
+
+@main
+struct SchnitzelApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    var body: some Scene {
+        Window(SchnitzelInfo.appName, id: "main") {
+            ContentView()
+                .frame(minWidth: 720, minHeight: 440)
+        }
+        .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About \(SchnitzelInfo.appName)") {
+                    AboutPanel.show()
+                }
+            }
+            CommandGroup(replacing: .help) {
+                Link("\(SchnitzelInfo.appName) on GitHub", destination: SchnitzelInfo.repositoryURL)
+            }
+        }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Lets `swift run` (no .app bundle) show a Dock icon and a menu bar.
+        // Inside Schnitzel.app this is already the default.
+        NSApp.setActivationPolicy(.regular)
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.activate()
+    }
+}
