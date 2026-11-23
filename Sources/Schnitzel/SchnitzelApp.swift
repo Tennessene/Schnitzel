@@ -25,9 +25,8 @@ struct SchnitzelApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        Window(SchnitzelInfo.appName, id: "main") {
-            ContentView()
-                .frame(minWidth: 720, minHeight: 440)
+        Window(SchnitzelInfo.appName, id: AppDelegate.mainWindowID) {
+            MainWindowContent(appDelegate: appDelegate)
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -42,7 +41,43 @@ struct SchnitzelApp: App {
     }
 }
 
+/// The main window's content. Also hands the app delegate a way to reopen this window.
+private struct MainWindowContent: View {
+    let appDelegate: AppDelegate
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        ContentView()
+            .frame(minWidth: 720, minHeight: 440)
+            .onAppear {
+                let openWindow = openWindow
+                appDelegate.reopenMainWindow = {
+                    openWindow(id: AppDelegate.mainWindowID)
+                }
+            }
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static let mainWindowID = "main"
+
+    /// Set by the main window once it has appeared.
+    var reopenMainWindow: (@MainActor () -> Void)?
+
+    // Like most Mac apps, Schnitzel keeps running when its window is closed.
+    // It quits with Schnitzel > Quit Schnitzel (⌘Q).
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    // Clicking the Dock icon while no window is open brings the main window back.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            reopenMainWindow?()
+        }
+        return true
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Lets `swift run` (no .app bundle) show a Dock icon and a menu bar.
         // Inside Schnitzel.app this is already the default.
