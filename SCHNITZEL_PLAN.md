@@ -2,7 +2,7 @@
 
 Schnitzel is a free, open-source Mac app for running Windows games, with an interface that is as easy to use as CrossOver's but has its own look. It is a **new SwiftUI app** that manages its own Pfannen and runs Wine directly. It builds on the work of Sikarugir, Kegworks and Wineskin, and reuses selected parts of **Whisky**'s WhiskyKit (GPL-3.0).
 
-This repository started as a fork of Sikarugir's public landing repo, which contains no app source code. Sikarugir's Creator.app and Launcher are closed source, so they can't be forked (see Phase 0).
+Schnitzel is a **standalone project**, not a GitHub fork: it lives at `github.com/Tennessene/schnitzel`. Early work began in a fork of Sikarugir's public landing repo (now `Tennessene/schnitzel-old`), which holds no app source code; its leftover files have been removed. Sikarugir's Creator.app and Launcher are closed source, so they couldn't be forked anyway (see Phase 0).
 
 Tagline: *"Windows games, pounded flat for your Mac."*
 
@@ -24,7 +24,7 @@ Claude Code writes the code; Anston doesn't want to dig through or hand-write it
 ## Phase 0: Understand the repo (done)
 
 Findings:
-- This repo holds no app source code: only Sikarugir's README, issue templates and Apple's D3DMetal license PDFs.
+- The original fork held no app source code: only Sikarugir's README, issue templates and Apple's D3DMetal license PDFs (all since removed).
 - Sikarugir's only open-source app code is Configure.app (Objective-C, LGPL-2.1, in `Sikarugir-App/Sikarugir-foss-sources`). Creator.app and the Sikarugir Launcher, which create wrappers and apply DLL overrides and env vars at launch, are closed source with no license.
 - Whisky (`Whisky-App/Whisky`, GPL-3.0, archived) has clean Swift code for running Wine, registry access, exe parsing and bottle settings. Its Wine build (CrossOver 22.1.1 with D3DMetal bundled), its update servers (`data.getwhisky.app`) and its global `WINEDLLOVERRIDES` approach to DXVK are not reused.
 
