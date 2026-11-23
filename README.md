@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Resources/AppIcon-1024.png" width="160" alt="Schnitzel app icon: a schnitzel with a lemon slice in a pan">
+  <img src="Resources/AppIcon-1024.png" width="160" alt="Schnitzel app icon: breaded schnitzels with a grilled lemon slice in a pan">
 </p>
 
 # Schnitzel
@@ -34,7 +34,7 @@ Run the tests with:
 scripts/test.sh
 ```
 
-The app icon is drawn in code. To regenerate `Resources/AppIcon.icns` after changing the design, run `swift scripts/make-icon.swift`.
+The app icon is made from `Resources/AppIcon-source.jpg`, a square photo. After changing it, run `swift scripts/make-icon.swift` to regenerate `Resources/AppIcon.icns`.
 
 ## D3DMetal
 
@@ -55,5 +55,11 @@ Schnitzel is not affiliated with or endorsed by any of these projects.
 ## License
 
 Schnitzel is free software under the [GNU General Public License v3.0](LICENSE), or (at your option) any later version.
+
+### App icon
+
+The app icon uses a [photo by LikeMeat on Unsplash](https://unsplash.com/photos/WxQ6ANA5gFI), cropped to a square. It is used under the [Unsplash License](https://unsplash.com/license), not the GPL.
+
+### Third-party components
 
 Third-party components keep their own licenses. Wine is LGPL-2.1, and DXVK, MoltenVK and DXMT use their own open-source licenses. D3DMetal is Apple's and is never distributed with Schnitzel.
