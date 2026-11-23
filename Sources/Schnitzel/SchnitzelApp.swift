@@ -37,6 +37,23 @@ struct SchnitzelApp: App {
             CommandGroup(replacing: .help) {
                 Link("\(SchnitzelInfo.appName) on GitHub", destination: SchnitzelInfo.repositoryURL)
             }
+            MainWindowCommands()
+        }
+    }
+}
+
+/// Window > Schnitzel (⌘0): brings the main window back after it was closed.
+/// SwiftUI doesn't list a closed `Window` scene in the Window menu by itself.
+private struct MainWindowCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(before: .windowList) {
+            Button(SchnitzelInfo.appName) {
+                openWindow(id: AppDelegate.mainWindowID)
+            }
+            .keyboardShortcut("0", modifiers: .command)
+            Divider()
         }
     }
 }
