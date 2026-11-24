@@ -28,7 +28,7 @@ def main():
     w(f"Schnitzel engine **{version}**: Wine {wine_upstream} built from CodeWeavers' Wine source "
       f"(CrossOver {wine['version']} source drop) by this repository's open build scripts.")
     w("")
-    w("**Test build.** It is offered in Schnitzel under *Schnitzel engines*, but not recommended yet. "
+    w("**Early build.** It is offered in Schnitzel under *Schnitzel engines*, but not recommended yet. "
       "Sikarugir's 10.0_8 engine stays the recommended engine until this engine also plays game videos "
       "(GStreamer, milestone M7) and has been tested on Apple Silicon.")
     w("")

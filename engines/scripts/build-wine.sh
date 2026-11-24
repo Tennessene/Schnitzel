@@ -31,12 +31,28 @@ toolchain="$output/llvm-mingw"
 if [[ ! -x "$toolchain/bin/x86_64-w64-mingw32-clang" ]]; then
     unpack "$(input_archive "$inputs" llvm-mingw)" "$toolchain"
 fi
-# Wine needs a newer bison and flex than macOS has; Homebrew's are keg-only.
-brew_prefix() { brew --prefix "$1" 2>/dev/null || true; }
-for tool in bison flex; do
-    [[ -x "$(brew_prefix $tool)/bin/$tool" ]] || brew install "$tool"
-done
-export PATH="$toolchain/bin:$(brew_prefix bison)/bin:$(brew_prefix flex)/bin:$PATH"
+# Wine needs a newer bison and flex than macOS has; Homebrew's are keg-only. They are looked
+# up by path, not with brew: under Rosetta on Apple Silicon (the fallback build), Homebrew
+# in /opt/homebrew refuses to run, so CI installs them natively before this script.
+tool_dir() {  # tool_dir NAME: the bin folder of Homebrew's keg-only NAME
+    local prefix
+    for prefix in /usr/local /opt/homebrew; do
+        [[ -x "$prefix/opt/$1/bin/$1" ]] && { echo "$prefix/opt/$1/bin"; return; }
+    done
+    if [[ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" != 1 ]] && command -v brew > /dev/null; then
+        brew install "$1" >&2 && echo "$(brew --prefix "$1")/bin" && return
+    fi
+    echo "error: Homebrew's $1 is missing (brew install $1)" >&2
+    return 1
+}
+bison_dir="$(tool_dir bison)"
+flex_dir="$(tool_dir flex)"
+# llvm-mingw goes last: it has its own unprefixed clang, clang++ and clang-cpp, which can't
+# build Mac code. Wine's configure finds the prefixed x86_64-w64-mingw32-clang anywhere in
+# PATH. The Mac compilers are named explicitly as well.
+export PATH="$bison_dir:$flex_dir:$PATH:$toolchain/bin"
+export CC=/usr/bin/clang CXX=/usr/bin/clang++
+"$CC" --version | awk 'NR==1' 
 x86_64-w64-mingw32-clang --version | awk 'NR==1'
 bison --version | awk 'NR==1'
 flex --version | awk 'NR==1'

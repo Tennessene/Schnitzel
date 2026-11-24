@@ -24,6 +24,11 @@ on:
       - "engines/**"
       - ".github/workflows/engines.yml"
   workflow_dispatch:
+    inputs:
+      rosetta:
+        description: "Build on Apple Silicon under Rosetta 2 (the fallback if GitHub drops Intel runners)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,12 +45,27 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       build-runner: ${{ steps.labels.outputs.build-runner }}
+      intel-runner: ${{ steps.labels.outputs.intel-runner }}
       arm-runner: ${{ steps.labels.outputs.arm-runner }}
+      run: ${{ steps.labels.outputs.run }}
     steps:
       - id: labels
+        env:
+          ROSETTA: ${{ inputs.rosetta }}
         run: |
-          echo "build-runner=macos-26-intel" >> "$GITHUB_OUTPUT"   # Intel x86_64; fallback: macos-15-intel
-          echo "arm-runner=macos-26" >> "$GITHUB_OUTPUT"           # Apple Silicon, for Rosetta checks
+          intel=macos-26-intel   # Intel x86_64; fallback: macos-15-intel
+          arm=macos-26           # Apple Silicon, for the Rosetta checks
+          echo "intel-runner=$intel" >> "$GITHUB_OUTPUT"
+          echo "arm-runner=$arm" >> "$GITHUB_OUTPUT"
+          # The build scripts run through this command: plain bash on Intel, or bash under
+          # Rosetta 2 for the fallback build on Apple Silicon.
+          if [[ "$ROSETTA" == "true" ]]; then
+            echo "build-runner=$arm" >> "$GITHUB_OUTPUT"
+            echo "run=arch -x86_64 /bin/bash" >> "$GITHUB_OUTPUT"
+          else
+            echo "build-runner=$intel" >> "$GITHUB_OUTPUT"
+            echo "run=/bin/bash" >> "$GITHUB_OUTPUT"
+          fi
 
   validate:
     name: Check inputs.json and scripts
@@ -84,6 +104,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rosetta 2
+        if: runner.arch == 'ARM64'
+        run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
       - name: Restore the inputs cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -91,7 +114,7 @@ jobs:
           key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
           fail-on-cache-miss: true
       - name: Build and check the test programs
-        run: engines/scripts/check-toolchain.sh engines/.cache/inputs engines/build
+        run: ${{ needs.config.outputs.run }} engines/scripts/check-toolchain.sh engines/.cache/inputs engines/build
       - name: Keep the test programs for the prefix check
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -112,6 +135,9 @@ jobs:
       key: ${{ steps.key.outputs.key }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rosetta 2
+        if: runner.arch == 'ARM64'
+        run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
       - id: key
         run: echo "key=engine-unix-libs-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-unix-libs.sh', 'engines/scripts/check-unix-libs.sh') }}" >> "$GITHUB_OUTPUT"
       - name: Restore the built libraries
@@ -129,7 +155,7 @@ jobs:
           fail-on-cache-miss: true
       - name: Build the libraries
         if: steps.cache.outputs.cache-hit != 'true'
-        run: engines/scripts/build-unix-libs.sh engines/.cache/inputs engines/build
+        run: ${{ needs.config.outputs.run }} engines/scripts/build-unix-libs.sh engines/.cache/inputs engines/build
       - name: Check the libraries
         run: engines/scripts/check-unix-libs.sh engines/build/deps
       - name: Keep the configure logs of a failed build
@@ -153,6 +179,9 @@ jobs:
       key: ${{ steps.key.outputs.key }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rosetta 2
+        if: runner.arch == 'ARM64'
+        run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
       - id: key
         run: echo "key=engine-moltenvk-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-moltenvk.sh') }}" >> "$GITHUB_OUTPUT"
       - name: Restore the built MoltenVK
@@ -170,7 +199,7 @@ jobs:
           fail-on-cache-miss: true
       - name: Build MoltenVK
         if: steps.cache.outputs.cache-hit != 'true'
-        run: engines/scripts/build-moltenvk.sh engines/.cache/inputs engines/build
+        run: ${{ needs.config.outputs.run }} engines/scripts/build-moltenvk.sh engines/.cache/inputs engines/build
       - name: Show what it was built from
         run: cat engines/build/moltenvk/revisions.txt
       - name: Disk space
@@ -186,6 +215,9 @@ jobs:
       key: ${{ steps.key.outputs.key }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rosetta 2
+        if: runner.arch == 'ARM64'
+        run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
       - id: key
         # Wine is built against the libraries and MoltenVK, so their scripts are part of its key.
         run: echo "key=engine-wine-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-unix-libs.sh', 'engines/scripts/check-unix-libs.sh', 'engines/scripts/build-moltenvk.sh', 'engines/scripts/build-wine.sh') }}" >> "$GITHUB_OUTPUT"
@@ -216,9 +248,16 @@ jobs:
           path: engines/build/moltenvk
           key: ${{ needs.moltenvk.outputs.key }}
           fail-on-cache-miss: true
+      - name: Install bison and flex
+        # Natively: Homebrew doesn't run under Rosetta on Apple Silicon.
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: brew list bison flex > /dev/null 2>&1 || brew install bison flex
       - name: Build Wine
         if: steps.cache.outputs.cache-hit != 'true'
-        run: engines/scripts/build-wine.sh engines/.cache/inputs engines/build
+        run: ${{ needs.config.outputs.run }} engines/scripts/build-wine.sh engines/.cache/inputs engines/build
       - name: Keep the logs of a failed build
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -243,6 +282,9 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rosetta 2
+        if: runner.arch == 'ARM64'
+        run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
       - name: Engine version
         id: version
         # A release tag engine-<CrossOver version>-<build> names the version; any other
@@ -281,7 +323,7 @@ jobs:
           key: ${{ needs.wine.outputs.key }}
           fail-on-cache-miss: true
       - name: Package, then check the package
-        run: engines/scripts/package-engine.sh engines/.cache/inputs engines/build "${{ steps.version.outputs.version }}"
+        run: ${{ needs.config.outputs.run }} engines/scripts/package-engine.sh engines/.cache/inputs engines/build "${{ steps.version.outputs.version }}"
       - name: Keep the engine archive
         # A single archive file, so the artifact keeps symlinks and permissions inside it.
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -299,16 +341,13 @@ jobs:
       fail-fast: false
       matrix:
         machine: [Intel, Apple Silicon]
-    runs-on: ${{ matrix.machine == 'Intel' && needs.config.outputs.build-runner || needs.config.outputs.arm-runner }}
+    runs-on: ${{ matrix.machine == 'Intel' && needs.config.outputs.intel-runner || needs.config.outputs.arm-runner }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rosetta 2
         if: runner.arch == 'ARM64'
-        run: |
-          if ! arch -x86_64 /usr/bin/true 2>/dev/null; then
-            sudo softwareupdate --install-rosetta --agree-to-license
-          fi
+        run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: engine
@@ -331,8 +370,8 @@ jobs:
           if-no-files-found: ignore
 
   # Only for release tags, and only when the package check and both prefix checks passed.
-  # The release is a draft (and marked as a pre-release): Anston publishes it by hand after
-  # testing. Only this job may write to the repository.
+  # The release is a draft: Anston downloads it, installs it with Install from file in Schnitzel,
+  # tests it, and only then publishes it by hand. Only this job may write to the repository.
   release:
     name: Draft release (M5)
     if: startsWith(github.ref, 'refs/tags/engine-')
@@ -383,7 +422,7 @@ jobs:
             gh release edit "$TAG" --notes-file notes.md
             gh release upload "$TAG" release/* --clobber
           else
-            gh release create "$TAG" release/* --draft --prerelease --verify-tag \
-              --title "Schnitzel engine $VERSION (test build)" --notes-file notes.md
+            gh release create "$TAG" release/* --draft --verify-tag \
+              --title "Schnitzel engine $VERSION" --notes-file notes.md
           fi
           gh release view "$TAG" --json url,isDraft,isPrerelease,assets --jq '{url, isDraft, isPrerelease, assets: [.assets[].name]}'
