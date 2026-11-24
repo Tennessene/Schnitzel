@@ -59,7 +59,9 @@ flex --version | awk 'NR==1'
 
 export PKG_CONFIG_PATH="$deps/lib/pkgconfig"
 export CPPFLAGS="-I$deps/include"
-export LDFLAGS="$LDFLAGS -L$deps/lib -L$moltenvk/lib"
+# The rpaths let build tools that run during the build (sfnt2fon links FreeType) find the
+# @rpath libraries. package-engine.sh removes these build paths again.
+export LDFLAGS="$LDFLAGS -L$deps/lib -L$moltenvk/lib -Wl,-rpath,$deps/lib -Wl,-rpath,$moltenvk/lib"
 
 step "Unpack CodeWeavers' Wine"
 unpack_crossover "$inputs" wine "$work/source"
