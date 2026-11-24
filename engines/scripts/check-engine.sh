@@ -78,6 +78,16 @@ has_string lib/wine/x86_64-unix/ntdll.so "CX_APPLEGPTK_LIBD3DSHARED_PATH" "D3DMe
 has_string lib/wine/x86_64-unix/ntdll.so "Server is running with WINEMSYNC" "MSync in ntdll"
 has_string lib/wine/x86_64-unix/ntdll.so "WINEMSYNC" "MSync switch in ntdll"
 has_string bin/wineserver "msync: up and running" "MSync in wineserver"
+# Schnitzel's own patches (engines/patches/wine) are in the build. Windows DLLs keep their
+# strings in UTF-16.
+for arch in x86_64-windows i386-windows; do
+    if python3 -I -c 'import sys; sys.exit(0 if "CommandLineAppend".encode("utf-16-le") in open(sys.argv[1],"rb").read() else 1)' \
+        "$engine/lib/wine/$arch/kernelbase.dll" 2>/dev/null; then
+        ok "per-program command line additions ($arch/kernelbase.dll, patch 0001)"
+    else
+        fail "patch 0001 missing: lib/wine/$arch/kernelbase.dll has no CommandLineAppend"
+    fi
+done
 # Symbols too, where the files still have them (informational).
 if nm "$engine/lib/wine/x86_64-unix/ntdll.so" 2>/dev/null | grep -q '_msync_init$'; then ok "ntdll.so has the msync_init symbol"; fi
 if nm "$engine/bin/wineserver" 2>/dev/null | grep -q '_msync_init$'; then ok "wineserver has the msync_init symbol"; fi

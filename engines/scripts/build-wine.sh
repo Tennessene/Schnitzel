@@ -67,6 +67,19 @@ step "Unpack CodeWeavers' Wine"
 unpack_crossover "$inputs" wine "$work/source"
 cat "$work/source/VERSION"
 
+step "Apply Schnitzel's patches"
+# engines/patches/wine/*.patch, in file name order. A patch that doesn't apply cleanly fails
+# the build; the list goes into BUILDINFO.json (package-engine.sh).
+patches=("$ENGINE_REPO"/engines/patches/wine/*.patch)
+[[ -e "${patches[0]}" ]] || patches=()
+: > "$work/patches.txt"
+for patch in "${patches[@]}"; do
+    (cd "$work/source" && patch -p1 --forward --batch --quiet < "$patch") \
+        || { echo "error: $(basename "$patch") doesn't apply" >&2; exit 1; }
+    echo "$(basename "$patch") $(shasum -a 256 "$patch" | awk '{print $1}')" >> "$work/patches.txt"
+    echo "ok      $(basename "$patch")"
+done
+
 step "Configure"
 mkdir -p "$work/build"
 cd "$work/build"
@@ -118,6 +131,7 @@ cp "$work/source/COPYING.LIB" "$work/source/LICENSE" "$work/source/AUTHORS" "$in
 cp "$work/configure.log" "$install/configure.log"
 printf '%s\n' "${configure_args[@]}" > "$install/configure-args.txt"
 cp "$work/source/VERSION" "$install/wine-version.txt"  # "Wine version 11.0"
+cp "$work/patches.txt" "$install/patches.txt"
 for arch in i386-windows x86_64-windows x86_64-unix; do
     [[ -d "$install/lib/wine/$arch" ]] || { echo "error: lib/wine/$arch wasn't installed" >&2; exit 1; }
 done

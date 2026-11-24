@@ -73,7 +73,7 @@ def main():
     w(f"Build scripts: {info['buildScripts']}. Toolchain: {info['toolchain']['xcode'].strip()}, "
       f"llvm-mingw {info['toolchain']['llvmMingw']}, macOS {info['toolchain']['deploymentTarget']} or newer. "
       f"Runner: {info['runner']['image']} {info['runner']['imageVersion']}. Schnitzel patches: "
-      f"{'none' if not info['patches'] else ', '.join(info['patches'])}.")
+      f"{'none' if not info['patches'] else ', '.join(p['file'] for p in info['patches'])}.")
     w("")
     w("\"CrossOver\" is a trademark of CodeWeavers. This engine is not made or endorsed by CodeWeavers.")
     print("\n".join(out))

@@ -226,7 +226,7 @@ jobs:
         run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
       - id: key
         # Wine is built against the libraries and MoltenVK, so their scripts are part of its key.
-        run: echo "key=engine-wine-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-unix-libs.sh', 'engines/scripts/check-unix-libs.sh', 'engines/scripts/build-moltenvk.sh', 'engines/scripts/build-wine.sh') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=engine-wine-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-unix-libs.sh', 'engines/scripts/check-unix-libs.sh', 'engines/scripts/build-moltenvk.sh', 'engines/scripts/build-wine.sh', 'engines/patches/wine/**') }}" >> "$GITHUB_OUTPUT"
       - name: Restore the built Wine
         id: cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

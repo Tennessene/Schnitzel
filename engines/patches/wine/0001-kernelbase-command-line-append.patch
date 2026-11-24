@@ -1,0 +1,88 @@
+Schnitzel patch for CodeWeavers' Wine (CrossOver 26.3.0 source drop)
+
+kernelbase: add per-program command line additions from the registry.
+
+If HKCU\Software\Wine\AppDefaults\<program file name>\CommandLineAppend is a non-empty
+string, CreateProcessInternalW appends it to the command line of new processes of that
+program (unless the command line already contains it). Schnitzel writes these values per
+Pfanne. Steam's steamwebhelper.exe, for example, needs
+"--no-sandbox --in-process-gpu --disable-gpu" to show its window on Wine for macOS;
+CrossOver adds the same options through its closed compatibility layer.
+
+Written for Schnitzel from scratch; licensed like Wine (LGPL-2.1-or-later).
+
+--- a/dlls/kernelbase/process.c	2026-11-24 15:01:05
++++ b/dlls/kernelbase/process.c	2026-11-24 15:01:05
+@@ -30,6 +30,7 @@
+ #include "winternl.h"
+ 
+ #include "kernelbase.h"
++#include "winreg.h"
+ #include "wine/debug.h"
+ #include "wine/condrv.h"
+ 
+@@ -498,8 +499,47 @@
+     RtlFreeUnicodeString( &desktopW );
+     RtlFreeUnicodeString( &titleW );
+     return ret;
++}
++
++/* Schnitzel: per-program command line additions.
++ *
++ * If HKCU\Software\Wine\AppDefaults\<file name of the program>\CommandLineAppend is a
++ * non-empty string, it is added to the end of the command line of every new process of
++ * that program, unless the command line already contains it. Schnitzel writes these values
++ * (see SCHNITZEL_PLAN.md, "Program settings"); for example, Chromium-based helpers such as
++ * Steam's steamwebhelper.exe need options that make them work on Wine for macOS.
++ * Returns a new command line allocated on the process heap, or NULL if nothing is added. */
++static WCHAR *schnitzel_append_command_line( const WCHAR *app_name, const WCHAR *cmdline )
++{
++    static const WCHAR prefixW[] = L"Software\\Wine\\AppDefaults\\";
++    WCHAR key[ARRAY_SIZE(prefixW) + MAX_PATH], value[1024], *result;
++    const WCHAR *file = app_name, *p;
++    DWORD type, size = sizeof(value) - sizeof(WCHAR);
++    HKEY hkey;
++    LONG ret;
++    size_t len;
++
++    if (!app_name || !cmdline) return NULL;
++    for (p = app_name; *p; p++) if (*p == '\\' || *p == '/') file = p + 1;
++    if (!*file || lstrlenW( file ) >= MAX_PATH) return NULL;
++
++    lstrcpyW( key, prefixW );
++    lstrcatW( key, file );
++    if (RegOpenKeyExW( HKEY_CURRENT_USER, key, 0, KEY_QUERY_VALUE, &hkey )) return NULL;
++    ret = RegQueryValueExW( hkey, L"CommandLineAppend", NULL, &type, (BYTE *)value, &size );
++    RegCloseKey( hkey );
++    if (ret || type != REG_SZ) return NULL;
++    value[size / sizeof(WCHAR)] = 0;
++    if (!value[0] || wcsstr( cmdline, value )) return NULL;
++
++    len = lstrlenW( cmdline ) + 1 + lstrlenW( value ) + 1;
++    if (!(result = RtlAllocateHeap( GetProcessHeap(), 0, len * sizeof(WCHAR) ))) return NULL;
++    swprintf( result, len, L"%s %s", cmdline, value );
++    TRACE( "Schnitzel: %s gets command line %s\n", debugstr_w(file), debugstr_w(result) );
++    return result;
+ }
+ 
++
+ /**********************************************************************
+  *           CreateProcessInternalW   (kernelbase.@)
+  */
+@@ -567,6 +607,16 @@
+         }
+     }
+ 
++    /* Schnitzel: per-program command line additions (see above). */
++    {
++        WCHAR *appended = schnitzel_append_command_line( app_name, tidy_cmdline );
++        if (appended)
++        {
++            if (tidy_cmdline != cmd_line) HeapFree( GetProcessHeap(), 0, tidy_cmdline );
++            tidy_cmdline = appended;
++        }
++    }
++
+     /* Warn if unsupported features are used */
+ 
+     if (flags & (IDLE_PRIORITY_CLASS | HIGH_PRIORITY_CLASS | REALTIME_PRIORITY_CLASS |

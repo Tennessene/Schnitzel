@@ -85,9 +85,10 @@ step "BUILDINFO.json and SOURCE.md"
 commit="${GITHUB_SHA:-$(git -C "$ENGINE_REPO" rev-parse HEAD)}"
 repository="${GITHUB_REPOSITORY:-Tennessene/Schnitzel}"
 printf '%s\n' "$version" > "$stage/version"
-python3 -I - "$ENGINE_INPUTS_JSON" "$stage" "$version" "$commit" "$repository" "$moltenvk/revisions.txt" "$wine/configure-args.txt" "$wine/wine-version.txt" <<'PY'
+python3 -I - "$ENGINE_INPUTS_JSON" "$stage" "$version" "$commit" "$repository" "$moltenvk/revisions.txt" "$wine/configure-args.txt" "$wine/wine-version.txt" "$wine/patches.txt" <<'PY'
 import json, os, platform, subprocess, sys, datetime
-inputs_json, stage, version, commit, repository, revisions, configure_args_file, wine_version_file = sys.argv[1:]
+inputs_json, stage, version, commit, repository, revisions, configure_args_file, wine_version_file, patches_file = sys.argv[1:]
+patches = [line.split(" ") for line in open(patches_file).read().splitlines() if line.strip()]
 
 def out(*args):
     try:
@@ -133,7 +134,10 @@ info = {
     "fetchedDuringBuild": [
         {"component": "MoltenVK dependency " + d[0], "source": d[1], "commit": d[2]} for d in moltenvk_deps if len(d) == 3
     ],
-    "patches": [],
+    "patches": [
+        {"file": p[0], "sha256": p[1], "source": f"https://github.com/{repository}/blob/{commit}/engines/patches/wine/{p[0]}"}
+        for p in patches
+    ],
 }
 json.dump(info, open(os.path.join(stage, "BUILDINFO.json"), "w"), indent=2)
 open(os.path.join(stage, "BUILDINFO.json"), "a").write("\n")
@@ -143,7 +147,7 @@ lines = [
     f"# Source of Schnitzel engine {version}",
     "",
     "This engine is Wine built from CodeWeavers' Wine source (as published in the CrossOver",
-    "source drop) by Schnitzel's open build scripts. Schnitzel applied no patches to it.",
+    "source drop) by Schnitzel's open build scripts, with the Schnitzel patches listed below.",
     "",
     "## Build scripts",
     "",
@@ -160,6 +164,11 @@ for i in used:
     lines.append(f"  - SHA-256 `{i['sha256']}`")
     for p in i.get("provides", []):
         lines.append(f"  - `{p['path']}`: {p['component']} (upstream {p['upstreamVersion']})")
+lines += ["", "## Schnitzel's patches to Wine", ""]
+if not patches:
+    lines.append("- none")
+for p in patches:
+    lines.append(f"- `{p[0]}` (SHA-256 `{p[1]}`): https://github.com/{repository}/blob/{commit}/engines/patches/wine/{p[0]}")
 lines += ["", "## Fetched by MoltenVK's build (git commits)", ""]
 for d in moltenvk_deps:
     if len(d) == 3:
