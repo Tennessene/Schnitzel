@@ -37,7 +37,12 @@ Decision: build Schnitzel as a new app. Copy these WhiskyKit parts: process and 
 - **Build:** a Swift package (`Package.swift`) with a `SchnitzelKit` library (core logic, no UI) and a `Schnitzel` app target (SwiftUI). A script (`scripts/build-app.sh`) builds it with `swift build` and wraps it into `Schnitzel.app`. Full Xcode is not required, so every step can be compile-checked.
 - **Pfanne on disk:** a folder under `~/Library/Application Support/Schnitzel/Pfannen/<name>/` holding a `Pfanne.plist` (settings and pinned component versions) and the Wine prefix.
 - **Components:** Wine engines, DXVK, MoltenVK and DXMT live versioned side by side under `~/Library/Application Support/Schnitzel/Components/<component>/<version>/`, so Pfannen can pin a version and roll back. D3DMetal is only detected from the user's own Game Porting Toolkit install, never bundled.
-- **Graphics layers:** designed so Phase 3 per-game choices work. Schnitzel never sets a global `WINEDLLOVERRIDES` for the d3d DLLs (`d3d9`, `d3d10core`, `d3d11`, `d3d12`, `dxgi`), because it would override per-game registry entries. Layer selection goes through the Pfanne's registry (`DllOverrides`, and per game `AppDefaults\<game>.exe\DllOverrides`). The engine and Pfanne core phase verifies which layers can coexist in one Pfanne, since `DllOverrides` only chooses between native and builtin DLLs.
+- **Graphics layers:** designed so Phase 3 per-game choices work. Wine's `DllOverrides` can only choose between a DLL's *builtin* version (shipped inside the engine) and its *native* version (a file in the prefix's `system32`), never between two files of the same kind. So each Pfanne has two slots:
+  - **Builtin slot, one provider per Pfanne.** D3DMetal and DXMT both work by replacing Wine's own builtin `d3d11`/`dxgi` (and for D3DMetal `d3d12`), so only one of them can be active in a Pfanne. Schnitzel builds an *engine assembly* for each combination it needs: an APFS clone (copy-on-write, so almost no extra disk space) of the pinned engine with the provider's files laid over it. Assemblies are cached under `Components/Assemblies/` and rebuilt if missing. Without an overlay, the builtin slot is whatever the engine ships (normally WineD3D).
+  - **Native slot: DXVK.** DXVK's DLLs are copied into the Pfanne's `system32` and `syswow64`.
+  - **Choosing per game** means choosing native or builtin per DLL, which `AppDefaults\<game>.exe\DllOverrides` can do. So per game, a Pfanne offers its builtin provider or DXVK. `d3d9` has no Metal provider, so builtin `d3d9` is always WineD3D.
+  - Schnitzel writes explicit Pfanne-wide `DllOverrides` for `d3d9`, `d3d10core`, `d3d11`, `d3d12` and `dxgi`, so nothing depends on Wine's default load order. It never sets a global `WINEDLLOVERRIDES` for those DLLs, because the env var would override the per-game registry entries.
+- **Env vars** (MSync, ESync, Metal HUD, D3DMetal options) are set per Pfanne when Schnitzel launches Wine.
 
 ---
 
@@ -65,9 +70,15 @@ Each phase is its own branch (`phase-1-rebrand`, and so on) with small commits.
 ## Engine and Pfanne core
 
 - Copy the selected WhiskyKit files into `SchnitzelKit` with their headers and a change note.
-- Download Wine engines from Gcenx's wine-crossover releases into the versioned component store. Each Pfanne pins its engine. Switching keeps the previous version for one-click rollback.
+- Download Wine engines into the versioned component store, checking each download against the SHA-256 digest GitHub publishes for it. Each Pfanne pins its engine. Switching keeps the previous version for one-click rollback.
+  - **Engine sources** (changed from "Gcenx's wine-crossover builds", which Gcenx no longer publishes): the default is the **Sikarugir engines** built by Gcenx (`Sikarugir-App/Engines` releases, e.g. `WS12WineSikarugir11.0_1`). They are CrossOver-based and support MSync and D3DMetal. The official **WineHQ builds** by Gcenx (`Gcenx/macOS_Wine_builds`, devel and staging) are offered too, but upstream Wine lacks MSync and the patches D3DMetal needs.
+  - If an engine archive contains Apple's D3DMetal, Schnitzel deletes it right after unpacking and uses only the user's own import, so Schnitzel never distributes D3DMetal.
+- Import D3DMetal from the user's mounted Game Porting Toolkit disk image (its `redist/lib` folder) into `Components/D3DMetal/<version>/`. That copy stays on the user's Mac.
+- Install DXVK (Gcenx's DXVK-macOS) and DXMT (`3Shain/dxmt`, builtin build) into the component store.
 - Create a Pfanne (Wine prefix, default Windows 10 64-bit), run an `.exe` in it, open C: in Finder, write a log per run.
-- Graphics layer setup per Pfanne as described under Architecture, including detecting the user's D3DMetal.
+- Graphics layer setup per Pfanne as described under Architecture.
+- A minimal working UI (list, create, run, open C:, engine and graphics choice) so each piece can be tested. Phase 2 replaces it with the real design.
+- To verify on first real use, because they can only be checked with the actual downloads: the exact folder layout inside each archive, and whether Sikarugir engines already contain DXMT or MoltenVK. Schnitzel finds the Wine binary by searching the unpacked archive and shows what each component contains, so these show up in testing.
 
 ## Phase 2: New main interface
 
@@ -87,10 +98,11 @@ Goal: one Pfanne holds a whole Steam library, and each game automatically gets t
 
 1. Scan the Pfanne's drive (e.g. `Program Files (x86)/Steam/steamapps/common/*`) for game `.exe` files.
 2. Parse each exe's PE import table and see which of these it loads: `d3d12.dll`, `d3d11.dll`, `d3d10*.dll`, `d3d9.dll`.
-3. Choose:
-   - d3d12 → D3DMetal
-   - d3d11 → D3DMetal (fallback DXMT, then DXVK)
+3. Choose (per game, between the Pfanne's builtin provider and DXVK; see Architecture):
+   - d3d12 → builtin, which must be D3DMetal
+   - d3d11 → builtin when the Pfanne's provider is D3DMetal or DXMT, otherwise DXVK
    - d3d9/d3d10 → DXVK
+   - D3DMetal and DXMT can't be mixed per game inside one Pfanne. A Pfanne uses D3DMetal when it's imported, otherwise DXMT.
 4. Write **per-app DLL overrides** into the Pfanne's registry under `HKCU\Software\Wine\AppDefaults\<game>.exe\DllOverrides`, so Wine loads the right DLLs when Steam launches that game.
 5. Show the detected choice for each game in the UI, with a manual override and a "Reset to auto" button.
 6. Settings that are env vars (some D3DMetal options, MSync, and similar) can't be set per game through the registry. Phase 3 applies them per Pfanne. Note any that need a per-game launch shim later.
@@ -113,10 +125,10 @@ Show the installed version and the latest available version of each component, w
 
 | Component | Source | Auto-update? |
 |---|---|---|
-| Wine engine | Gcenx's wine-crossover builds (GitHub releases) | Yes |
-| DXVK | Gcenx's DXVK-macOS (GitHub releases) | Yes |
+| Wine engine | Sikarugir engines by Gcenx (default) and WineHQ builds by Gcenx (GitHub releases) | Yes |
+| DXVK | Gcenx's DXVK-macOS (GitHub releases; last release 2023) | Yes |
 | MoltenVK | KhronosGroup/MoltenVK (GitHub releases) | Yes |
-| DXMT | upstream GitHub releases | Yes |
+| DXMT | `3Shain/dxmt` GitHub releases, builtin build (LGPL-2.1 from v0.81, MIT before) | Yes |
 | D3DMetal | Apple Game Porting Toolkit | **No.** Detect the installed version and link to Apple's download page; requires the user's free Apple ID |
 
 Rules:
