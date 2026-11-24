@@ -37,9 +37,9 @@ for tool in bison flex; do
     [[ -x "$(brew_prefix $tool)/bin/$tool" ]] || brew install "$tool"
 done
 export PATH="$toolchain/bin:$(brew_prefix bison)/bin:$(brew_prefix flex)/bin:$PATH"
-x86_64-w64-mingw32-clang --version | head -1
-bison --version | head -1
-flex --version | head -1
+x86_64-w64-mingw32-clang --version | awk 'NR==1'
+bison --version | awk 'NR==1'
+flex --version | awk 'NR==1'
 
 export PKG_CONFIG_PATH="$deps/lib/pkgconfig"
 export CPPFLAGS="-I$deps/include"
@@ -52,20 +52,23 @@ cat "$work/source/VERSION"
 step "Configure"
 mkdir -p "$work/build"
 cd "$work/build"
-"$work/source/configure" --prefix="$install" \
-    --enable-archs=i386,x86_64 --with-mingw \
-    --disable-tests \
-    --with-coreaudio --with-cups --with-freetype --with-gnutls --with-inotify --with-opencl \
-    --with-pcap --with-sdl --with-vulkan \
-    --without-x --without-wayland --without-alsa --without-oss --without-pulse \
-    --without-capi --without-dbus --without-ffmpeg --without-fontconfig --without-gphoto \
-    --without-gssapi --without-gstreamer --without-krb5 --without-netapi --without-sane \
-    --without-udev --without-usb --without-v4l2 \
-    2>&1 | tee "$work/configure.log"
+configure_args=(
+    --enable-archs=i386,x86_64 --with-mingw
+    --disable-tests
+    --with-coreaudio --with-cups --with-freetype --with-gnutls --with-inotify --with-opencl
+    --with-pcap --with-sdl --with-vulkan
+    --without-x --without-wayland --without-alsa --without-oss --without-pulse
+    --without-capi --without-dbus --without-ffmpeg --without-fontconfig --without-gphoto
+    --without-gssapi --without-gstreamer --without-krb5 --without-netapi --without-sane
+    --without-udev --without-usb --without-v4l2
+)
+"$work/source/configure" --prefix="$install" "${configure_args[@]}" 2>&1 | tee "$work/configure.log"
 
 # configure only warns when a library is missing; Schnitzel's engine needs all of these.
 config_h="$work/build/include/config.h"
 missing=0
+# SONAME_LIBVULKAN must name MoltenVK: CrossOver ships no separate Vulkan loader, and
+# Wine's configure falls back to MoltenVK when it finds no libvulkan.
 for define in SONAME_LIBFREETYPE SONAME_LIBGNUTLS SONAME_LIBVULKAN SONAME_LIBSDL2 HAVE_SYS_INOTIFY_H; do
     if grep -q "^#define $define" "$config_h"; then
         echo "ok      $(grep "^#define $define" "$config_h")"
@@ -74,6 +77,11 @@ for define in SONAME_LIBFREETYPE SONAME_LIBGNUTLS SONAME_LIBVULKAN SONAME_LIBSDL
         missing=1
     fi
 done
+grep -q '^#define SONAME_LIBVULKAN "libMoltenVK.dylib"' "$config_h" \
+    || { echo "error: Vulkan isn't MoltenVK: $(grep SONAME_LIBVULKAN "$config_h")" >&2; missing=1; }
+# The Windows side must be built for both architectures (WoW64).
+grep -q "^PE_ARCHS = .*i386" "$work/build/Makefile" && grep -q "^PE_ARCHS = .*x86_64" "$work/build/Makefile" \
+    || { echo "error: configure didn't enable both i386 and x86_64 PE builds: $(grep "^PE_ARCHS" "$work/build/Makefile")" >&2; missing=1; }
 [[ $missing == 0 ]] || { grep -iE "won't be supported|not found" "$work/configure.log" >&2 || true; exit 1; }
 
 step "Build (this is the long part)"
@@ -85,6 +93,10 @@ step "Install"
 make install > "$work/install.log" 2>&1 || { tail -40 "$work/install.log" >&2; exit 1; }
 cp "$work/source/COPYING.LIB" "$work/source/LICENSE" "$work/source/AUTHORS" "$install/"
 cp "$work/configure.log" "$install/configure.log"
+printf '%s\n' "${configure_args[@]}" > "$install/configure-args.txt"
+for arch in i386-windows x86_64-windows x86_64-unix; do
+    [[ -d "$install/lib/wine/$arch" ]] || { echo "error: lib/wine/$arch wasn't installed" >&2; exit 1; }
+done
 summary "- Wine: $(cat "$work/source/VERSION") (CodeWeavers' copy), built in $(( ($(date +%s) - start) / 60 )) minutes"
 cd "$output"
 rm -rf "$work"

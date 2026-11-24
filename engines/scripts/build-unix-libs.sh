@@ -27,7 +27,8 @@ export CPPFLAGS="-I$prefix/include"
 export LDFLAGS="$LDFLAGS -L$prefix/lib"
 configure_common=(--prefix="$prefix" --host=x86_64-apple-darwin --build=x86_64-apple-darwin)
 
-# Install names: Wine dlopens these libraries by the name configure records, so each one's
+# Install names (set at the end, once everything is built: during the build the libraries
+# keep their absolute install names, so configure's test programs can load them). Wine dlopens these libraries by the name configure records, so each one's
 # install name is its plain file name (libgnutls.30.dylib). Wine then finds it through
 # DYLD_FALLBACK_LIBRARY_PATH, which Schnitzel points at the engine's lib folder. Links
 # between the libraries use @loader_path, so they find each other in the same folder.
@@ -46,7 +47,6 @@ step "GMP $(input_field gmp version)"
 unpack "$(input_archive "$inputs" gmp)" "$work/gmp"
 (cd "$work/gmp" && ./configure "${configure_common[@]}" --enable-shared --disable-static --disable-cxx \
     && make -j"$JOBS" && make install)
-fix_install_name "$prefix/lib/libgmp.10.dylib"
 cp "$work/gmp/COPYING.LESSERv3" "$prefix/licenses/GMP-COPYING.LESSERv3"
 cp "$work/gmp/COPYINGv2" "$prefix/licenses/GMP-COPYINGv2"
 
@@ -71,7 +71,6 @@ unpack_crossover "$inputs" gnutls "$work/gnutls"
         --disable-doc --disable-manpages --disable-tools --disable-tests --disable-cxx \
         --disable-guile --disable-nls --disable-valgrind-tests --disable-full-test-suite \
     && make -j"$JOBS" && make install)
-fix_install_name "$prefix/lib/libgnutls.30.dylib"
 cp "$work/gnutls/LICENSE" "$prefix/licenses/GnuTLS-LICENSE"
 cp "$work/gnutls/doc/COPYING.LESSER" "$prefix/licenses/GnuTLS-COPYING.LESSER"
 cp "$work/gnutls/lib/accelerated/x86/license.txt" "$prefix/licenses/GnuTLS-x86-accelerated-license.txt"
@@ -81,7 +80,6 @@ unpack "$(input_archive "$inputs" freetype)" "$work/freetype"
 (cd "$work/freetype" && ./configure "${configure_common[@]}" --enable-shared --disable-static \
     --with-zlib=yes --with-bzip2=no --with-png=no --with-harfbuzz=no --with-brotli=no \
     && make -j"$JOBS" && make install)
-fix_install_name "$prefix/lib/libfreetype.6.dylib"
 cp "$work/freetype/LICENSE.TXT" "$prefix/licenses/FreeType-LICENSE.TXT"
 cp "$work/freetype/docs/FTL.TXT" "$prefix/licenses/FreeType-FTL.TXT"
 
@@ -93,15 +91,18 @@ cmake -S "$work/sdl2" -B "$work/sdl2/build" -G "Unix Makefiles" \
     -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF -DSDL2_DISABLE_SDL2MAIN=ON
 cmake --build "$work/sdl2/build" -j "$JOBS"
 cmake --install "$work/sdl2/build"
-fix_install_name "$prefix/lib/libSDL2-2.0.0.dylib"
 cp "$work/sdl2/LICENSE.txt" "$prefix/licenses/SDL2-LICENSE.txt"
 
 step "libinotify-kqueue $(input_field libinotify-kqueue version)"
 unpack "$(input_archive "$inputs" libinotify-kqueue)" "$work/libinotify"
 (cd "$work/libinotify" && ./configure "${configure_common[@]}" --enable-shared --disable-static \
     && make -j"$JOBS" && make install)
-fix_install_name "$prefix/lib/libinotify.0.dylib"
 cp "$work/libinotify/LICENSE" "$prefix/licenses/libinotify-kqueue-LICENSE"
+
+step "Install names"
+for library in libgmp.10.dylib libgnutls.30.dylib libfreetype.6.dylib libSDL2-2.0.0.dylib libinotify.0.dylib; do
+    fix_install_name "$prefix/lib/$library"
+done
 
 step "Check the libraries"
 "$ENGINE_REPO/engines/scripts/check-unix-libs.sh" "$prefix"

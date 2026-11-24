@@ -26,7 +26,7 @@ rm -rf "$work" "$prefix"
 mkdir -p "$prefix/lib" "$prefix/licenses" "$work"
 
 command -v xcodebuild > /dev/null || { echo "error: MoltenVK needs Xcode (xcodebuild)" >&2; exit 1; }
-xcodebuild -version | head -1
+xcodebuild -version | awk 'NR==1'
 
 step "Unpack CodeWeavers' MoltenVK"
 unpack_crossover "$inputs" moltenvk "$work/moltenvk"
@@ -56,7 +56,7 @@ step "Build MoltenVK"
     make macos MVK_CONFIG_LOG_LEVEL=1)
 
 built="$work/moltenvk/Package/Release/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib"
-[[ -f "$built" ]] || built="$(find "$work/moltenvk/Package" -name libMoltenVK.dylib -path '*macOS*' | head -1)"
+[[ -f "$built" ]] || built="$(find "$work/moltenvk/Package" -name libMoltenVK.dylib -path '*macOS*' | awk 'NR==1')"
 [[ -f "$built" ]] || { echo "error: libMoltenVK.dylib wasn't built" >&2; exit 1; }
 
 lipo "$built" -thin x86_64 -output "$prefix/lib/libMoltenVK.dylib" 2>/dev/null || cp "$built" "$prefix/lib/libMoltenVK.dylib"

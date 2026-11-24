@@ -49,7 +49,7 @@ for arch in i686 x86_64; do
 done
 [[ $failed == 0 ]] || exit 1
 
-version="$("$toolchain/bin/x86_64-w64-mingw32-clang" --version | head -1)"
+version="$("$toolchain/bin/x86_64-w64-mingw32-clang" --version | awk 'NR==1')"
 echo "toolchain: $version"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
