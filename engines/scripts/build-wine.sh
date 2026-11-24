@@ -94,6 +94,7 @@ make install > "$work/install.log" 2>&1 || { tail -40 "$work/install.log" >&2; e
 cp "$work/source/COPYING.LIB" "$work/source/LICENSE" "$work/source/AUTHORS" "$install/"
 cp "$work/configure.log" "$install/configure.log"
 printf '%s\n' "${configure_args[@]}" > "$install/configure-args.txt"
+cp "$work/source/VERSION" "$install/wine-version.txt"  # "Wine version 11.0"
 for arch in i386-windows x86_64-windows x86_64-unix; do
     [[ -d "$install/lib/wine/$arch" ]] || { echo "error: lib/wine/$arch wasn't installed" >&2; exit 1; }
 done

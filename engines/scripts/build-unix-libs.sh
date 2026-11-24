@@ -95,7 +95,10 @@ cp "$work/sdl2/LICENSE.txt" "$prefix/licenses/SDL2-LICENSE.txt"
 
 step "libinotify-kqueue $(input_field libinotify-kqueue version)"
 unpack "$(input_archive "$inputs" libinotify-kqueue)" "$work/libinotify"
+# fdclosedir() only exists from macOS 26.4 on (configure finds it in the newer SDK); without
+# it libinotify uses its own fallback, as on every older macOS.
 (cd "$work/libinotify" && ./configure "${configure_common[@]}" --enable-shared --disable-static \
+    ac_cv_func_fdclosedir=no \
     && make -j"$JOBS" && make install)
 cp "$work/libinotify/LICENSE" "$prefix/licenses/libinotify-kqueue-LICENSE"
 

@@ -17,9 +17,13 @@ if [[ "$(uname -m)" != "x86_64" ]]; then
     exit 1
 fi
 
+# Using a macOS function newer than the deployment target without a runtime check is an
+# error, not a warning: the runner's SDK is newer than macOS 14, and such a call would crash
+# on older systems. (configure's link tests can't tell; see build-unix-libs.sh for fixes.)
+availability="-Werror=unguarded-availability -Werror=unguarded-availability-new"
+export CFLAGS="${CFLAGS:-} -O2 -arch x86_64 -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET $availability"
+export CXXFLAGS="${CXXFLAGS:-} -O2 -arch x86_64 -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET $availability"
 # Leave room in Mach-O headers so install names can be rewritten when packaging.
-export CFLAGS="${CFLAGS:-} -O2 -arch x86_64 -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
-export CXXFLAGS="${CXXFLAGS:-} -O2 -arch x86_64 -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
 export LDFLAGS="${LDFLAGS:-} -arch x86_64 -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET -Wl,-headerpad_max_install_names"
 export CC="${CC:-clang}"
 export CXX="${CXX:-clang++}"

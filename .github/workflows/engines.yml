@@ -13,6 +13,9 @@ name: Engines
 on:
   push:
     branches: [main, own-engine-builds]
+    # A tag engine-<CrossOver version>-<build> (for example engine-26.3.0-1) builds from
+    # scratch and creates a draft release. Path filters don't apply to tags.
+    tags: ["engine-*"]
     paths:
       - "engines/**"
       - ".github/workflows/engines.yml"
@@ -105,14 +108,18 @@ jobs:
     needs: [config, inputs]
     runs-on: ${{ needs.config.outputs.build-runner }}
     timeout-minutes: 120
+    outputs:
+      key: ${{ steps.key.outputs.key }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: key
+        run: echo "key=engine-unix-libs-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-unix-libs.sh', 'engines/scripts/check-unix-libs.sh') }}" >> "$GITHUB_OUTPUT"
       - name: Restore the built libraries
         id: cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: engines/build/deps
-          key: engine-unix-libs-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-unix-libs.sh', 'engines/scripts/check-unix-libs.sh') }}
+          key: ${{ steps.key.outputs.key }}
       - name: Restore the inputs cache
         if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -142,14 +149,18 @@ jobs:
     needs: [config, inputs]
     runs-on: ${{ needs.config.outputs.build-runner }}
     timeout-minutes: 120
+    outputs:
+      key: ${{ steps.key.outputs.key }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: key
+        run: echo "key=engine-moltenvk-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-moltenvk.sh') }}" >> "$GITHUB_OUTPUT"
       - name: Restore the built MoltenVK
         id: cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: engines/build/moltenvk
-          key: engine-moltenvk-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-moltenvk.sh') }}
+          key: ${{ steps.key.outputs.key }}
       - name: Restore the inputs cache
         if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -165,3 +176,214 @@ jobs:
       - name: Disk space
         if: always()
         run: df -h . | tail -1
+
+  wine:
+    name: Wine (M4)
+    needs: [config, unix-libs, moltenvk]
+    runs-on: ${{ needs.config.outputs.build-runner }}
+    timeout-minutes: 340
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: key
+        # Wine is built against the libraries and MoltenVK, so their scripts are part of its key.
+        run: echo "key=engine-wine-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-unix-libs.sh', 'engines/scripts/check-unix-libs.sh', 'engines/scripts/build-moltenvk.sh', 'engines/scripts/build-wine.sh') }}" >> "$GITHUB_OUTPUT"
+      - name: Restore the built Wine
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/wine
+          key: ${{ steps.key.outputs.key }}
+      - name: Restore the inputs cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/.cache/inputs
+          key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
+          fail-on-cache-miss: true
+      - name: Restore the built libraries
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/deps
+          key: ${{ needs.unix-libs.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Restore the built MoltenVK
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/moltenvk
+          key: ${{ needs.moltenvk.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Build Wine
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: engines/scripts/build-wine.sh engines/.cache/inputs engines/build
+      - name: Keep the logs of a failed build
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wine-logs
+          path: |
+            engines/build/work-wine/*.log
+            engines/build/work-wine/build/config.log
+            engines/build/work-wine/build/include/config.h
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Disk space
+        if: always()
+        run: df -h . | tail -1
+
+  package:
+    name: Package and check the engine (M4)
+    needs: [config, unix-libs, moltenvk, wine]
+    runs-on: ${{ needs.config.outputs.build-runner }}
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Engine version
+        id: version
+        # A release tag engine-<CrossOver version>-<build> names the version; any other
+        # build is a numbered development build that is never released.
+        run: |
+          crossover="$(python3 -c 'import json; print(next(i["version"] for i in json.load(open("engines/inputs.json"))["inputs"] if i["id"] == "crossover-sources"))')"
+          if [[ "$GITHUB_REF" == refs/tags/engine-* ]]; then
+            version="${GITHUB_REF#refs/tags/engine-}"
+          else
+            version="$crossover-dev.${{ github.run_number }}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Engine version: $version"
+      - name: Restore the inputs cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/.cache/inputs
+          key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
+          fail-on-cache-miss: true
+      - name: Restore the built libraries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/deps
+          key: ${{ needs.unix-libs.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Restore the built MoltenVK
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/moltenvk
+          key: ${{ needs.moltenvk.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Restore the built Wine
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/wine
+          key: ${{ needs.wine.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Package, then check the package
+        run: engines/scripts/package-engine.sh engines/.cache/inputs engines/build "${{ steps.version.outputs.version }}"
+      - name: Keep the engine archive
+        # A single archive file, so the artifact keeps symlinks and permissions inside it.
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: engine
+          path: engines/build/dist/*
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+
+  check-prefix:
+    name: Prefix check on ${{ matrix.machine }}
+    needs: [config, toolchain, package]
+    strategy:
+      fail-fast: false
+      matrix:
+        machine: [Intel, Apple Silicon]
+    runs-on: ${{ matrix.machine == 'Intel' && needs.config.outputs.build-runner || needs.config.outputs.arm-runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rosetta 2
+        if: runner.arch == 'ARM64'
+        run: |
+          if ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: engine
+          path: engine
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: test-programs
+          path: test-programs
+      - name: Check the archive's checksum
+        run: cd engine && shasum -a 256 -c ./*.sha256
+      - name: Create a prefix and run Windows programs
+        run: engines/scripts/check-prefix.sh engine/schnitzel-engine-${{ needs.package.outputs.version }}.tar.xz test-programs "$RUNNER_TEMP/prefix-check"
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: prefix-check-logs-${{ runner.arch }}
+          path: ${{ runner.temp }}/prefix-check/logs
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Only for release tags, and only when the package check and both prefix checks passed.
+  # The release is a draft (and marked as a pre-release): Anston publishes it by hand after
+  # testing. Only this job may write to the repository.
+  release:
+    name: Draft release (M5)
+    if: startsWith(github.ref, 'refs/tags/engine-')
+    needs: [config, package, check-prefix]
+    runs-on: ${{ needs.config.outputs.build-runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Restore the inputs cache
+        # The exact sources are attached to the release (Wine and GnuTLS are LGPL).
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/.cache/inputs
+          key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: engine
+          path: engine
+      - name: Collect the release files
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 engines/scripts/fetch.py --dest engines/.cache/inputs --milestone M4
+          mkdir release
+          cp "engine/schnitzel-engine-$VERSION.tar.xz" release/
+          # Every source the engine was built from (not DXMT, which isn't in the engine).
+          python3 -c 'import json; [print(i["file"]) for i in json.load(open("engines/inputs.json"))["inputs"] if i["id"] not in ("dxmt", "dxmt-license")]' \
+            | while read -r file; do cp "engines/.cache/inputs/$file" release/; done
+          (cd release && shasum -a 256 -- * > SHA256SUMS && cat SHA256SUMS)
+          tar -xOf "release/schnitzel-engine-$VERSION.tar.xz" "schnitzel-engine-$VERSION/BUILDINFO.json" > BUILDINFO.json
+          python3 engines/scripts/release-notes.py BUILDINFO.json release/SHA256SUMS \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.package.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --json isDraft --jq .isDraft > is-draft.txt 2>/dev/null; then
+            # Re-running the workflow refreshes the files of a draft, never of a published release.
+            [[ "$(cat is-draft.txt)" == "true" ]] || { echo "error: $TAG is already published" >&2; exit 1; }
+            gh release edit "$TAG" --notes-file notes.md
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* --draft --prerelease --verify-tag \
+              --title "Schnitzel engine $VERSION (test build)" --notes-file notes.md
+          fi
+          gh release view "$TAG" --json url,isDraft,isPrerelease,assets --jq '{url, isDraft, isPrerelease, assets: [.assets[].name]}'
