@@ -174,7 +174,7 @@ Build plan (written November 2026, before the build work starts):
 
 *Milestones.* Each milestone gets small commits and a test before the next:
 - **M1:** `inputs.json` (every input pinned by URL, version, license and SHA-256, **including the llvm-mingw toolchain**), the fetch-and-verify script with tests, and the workflow skeleton with caching. The workflow also checks the toolchain by building a tiny 32-bit and 64-bit Windows test program, which M4's prefix check reuses. *Done (November 2026): first workflow runs passed on `macos-26-intel` in about 2 minutes; a second run restored all inputs from the cache and re-verified them.*
-- **M2:** unix libraries.
+- **M2:** unix libraries. *In progress: build scripts for M2–M4 are written but untested (commit `069d136`, "WIP"); see `docs/HANDOFF.md`.*
 - **M3:** MoltenVK.
 - **M4:** Wine, packaging, loader check and prefix check (artifacts only). M4 also adds:
   - **32-bit and 64-bit programs.** The prefix check runs the 32-bit (i686) and the 64-bit (x86_64) test program built with llvm-mingw in M1. Each prints a fixed line and exits with a fixed code. The check passes only if both run through the WoW64 build and their output and exit codes match.
