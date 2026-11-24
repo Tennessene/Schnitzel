@@ -145,6 +145,29 @@ import Testing
         #expect(ProgramSettings.key(for: "/x/Y/Launcher.exe") == "launcher.exe")
     }
 
+    @Test func avxIsOnByDefaultAndVersion1FilesAreMigrated() throws {
+        #expect(PfanneSettings(name: "New").wine.avxEnabled)
+        var env: [String: String] = [:]
+        PfanneSettings(name: "New").environmentVariables(wineEnv: &env)
+        #expect(env["ROSETTA_ADVERTISE_AVX"] == "1")
+
+        // Version 1 saved false only because it was the default: migrated to on.
+        let v1 = try PropertyListSerialization.data(
+            fromPropertyList: ["fileVersion": 1, "name": "Old", "wine": ["avxEnabled": false]], format: .xml, options: 0)
+        let migrated = try PropertyListDecoder().decode(PfanneSettings.self, from: v1)
+        #expect(migrated.wine.avxEnabled)
+        #expect(migrated.fileVersion == PfanneSettings.currentFileVersion)
+
+        // From version 2 on, false is the user's choice and stays.
+        var off = PfanneSettings(name: "Off")
+        off.wine.avxEnabled = false
+        let saved = try PropertyListEncoder().encode(off)
+        #expect(try PropertyListDecoder().decode(PfanneSettings.self, from: saved).wine.avxEnabled == false)
+        var offEnv: [String: String] = [:]
+        off.environmentVariables(wineEnv: &offEnv)
+        #expect(offEnv["ROSETTA_ADVERTISE_AVX"] == nil)
+    }
+
     @Test func olderSettingsFilesHaveNoProgramsButGetTheDefaults() throws {
         let old = Data(#"""
         <?xml version="1.0" encoding="UTF-8"?>

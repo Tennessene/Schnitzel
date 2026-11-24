@@ -106,7 +106,11 @@ public struct ComponentPins: Codable, Equatable, Hashable, Sendable {
 public struct PfanneWineConfig: Codable, Equatable, Sendable {
     public var windowsVersion: WinVersion = .win10
     public var enhancedSync: EnhancedSync = .msync
-    public var avxEnabled: Bool = false
+    /// Rosetta 2 reports AVX, AVX2, FMA, F16C and BMI2 to Windows programs
+    /// (`ROSETTA_ADVERTISE_AVX=1`). Rosetta can run these instructions since macOS 15 but hides
+    /// them unless asked; CrossOver turns this on for every bottle, and some games need AVX.
+    /// On by default; no effect on Intel Macs or before macOS 15. See SCHNITZEL_PLAN.md.
+    public var avxEnabled: Bool = true
     /// Wine's Retina mode: full display resolution instead of scaled.
     public var highResolutionMode: Bool = false
 
@@ -116,7 +120,7 @@ public struct PfanneWineConfig: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.windowsVersion = try container.decodeIfPresent(WinVersion.self, forKey: .windowsVersion) ?? .win10
         self.enhancedSync = try container.decodeIfPresent(EnhancedSync.self, forKey: .enhancedSync) ?? .msync
-        self.avxEnabled = try container.decodeIfPresent(Bool.self, forKey: .avxEnabled) ?? false
+        self.avxEnabled = try container.decodeIfPresent(Bool.self, forKey: .avxEnabled) ?? true
         self.highResolutionMode = try container.decodeIfPresent(Bool.self, forKey: .highResolutionMode) ?? false
     }
 }
@@ -137,7 +141,9 @@ public struct PfanneMetalConfig: Codable, Equatable, Sendable {
 }
 
 public struct PfanneSettings: Codable, Equatable, Sendable {
-    public static let currentFileVersion = 1
+    /// 2: AVX is on by default (version 1 files saved `avxEnabled = false` only because that
+    /// was the default and there was no switch for it, so they are migrated to on).
+    public static let currentFileVersion = 2
 
     public var fileVersion: Int = Self.currentFileVersion
     public var name: String
@@ -162,7 +168,7 @@ public struct PfanneSettings: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.fileVersion = try container.decodeIfPresent(Int.self, forKey: .fileVersion) ?? Self.currentFileVersion
+        self.fileVersion = try container.decodeIfPresent(Int.self, forKey: .fileVersion) ?? 1
         guard fileVersion <= Self.currentFileVersion else {
             throw PfanneError.newerFileVersion(fileVersion)
         }
@@ -173,6 +179,12 @@ public struct PfanneSettings: Codable, Equatable, Sendable {
         self.pins = try container.decodeIfPresent(ComponentPins.self, forKey: .pins) ?? ComponentPins()
         self.previousPins = try container.decodeIfPresent(ComponentPins.self, forKey: .previousPins)
         self.programs = try container.decodeIfPresent([String: ProgramSettings].self, forKey: .programs) ?? [:]
+
+        // Migrations; the file is written back in the current version on the next save.
+        if fileVersion < 2 {
+            wine.avxEnabled = true
+        }
+        fileVersion = Self.currentFileVersion
     }
 
     /// Changes the pins and remembers the old ones for rollback.
