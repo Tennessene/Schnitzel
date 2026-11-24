@@ -37,7 +37,7 @@ for name in "${required[@]}"; do
             @loader_path/*) [[ -f "$prefix/lib/${dependency#@loader_path/}" ]] || fail "$name needs $dependency, which isn't built" ;;
             *) fail "$name links to $dependency, outside the system and the build" ;;
         esac
-    done < <(otool -L "$library" | tail -n +2 | awk '{print $1}' | grep -vx "$name")
+    done < <(otool -L "$library" | tail -n +2 | awk '{print $1}' | grep -vxF "$id")
 
     echo "ok      $name ($archs, macOS $minos+)"
 done
