@@ -27,8 +27,26 @@ public struct PfanneSetup: Sendable {
         self.store = store
     }
 
-    /// Creates the Wine prefix for a new Pfanne and applies its settings.
+    /// How long `wineboot` may take to create a prefix. A first run on a slow Mac takes
+    /// about a minute; anything far beyond that has hung.
+    static let winebootTimeout: Duration = .seconds(300)
+
+    /// Creates the Wine prefix for a new Pfanne, checks that it really exists and applies
+    /// the Pfanne's settings. Throws `PfanneError.prefixNotCreated` with the reason if Wine
+    /// didn't create a complete prefix.
     public func createPrefix(for pfanne: Pfanne) async throws {
+        try await initializePrefix(for: pfanne)
+    }
+
+    /// Runs `wineboot --init` again on a Pfanne whose prefix is missing or incomplete.
+    /// `wineboot` fills in what's missing and keeps what's there (installed programs and
+    /// files in drive_c), then the settings are applied again.
+    public func repairPrefix(for pfanne: Pfanne) async throws {
+        try? FileManager.default.removeItem(at: pfanne.appliedStateURL)
+        try await initializePrefix(for: pfanne)
+    }
+
+    private func initializePrefix(for pfanne: Pfanne) async throws {
         guard Rosetta.isInstalled else { throw WineError.rosettaMissing }
         let runtime = try WineRuntime.prepare(for: pfanne, store: store)
         try FileManager.default.createDirectory(at: pfanne.prefixURL, withIntermediateDirectories: true)
@@ -36,10 +54,38 @@ public struct PfanneSetup: Sendable {
         // Skip the Mono and Gecko install prompts while the prefix is created; games that
         // need .NET or a browser engine get them through Winetricks. This is the only
         // WINEDLLOVERRIDES Schnitzel sets, and it doesn't touch graphics DLLs.
-        try await Wine.runWine(["wineboot", "--init"], runtime: runtime, logName: "wineboot",
-                               environment: ["WINEDLLOVERRIDES": "mscoree,mshtml="])
-        try await Wine.waitForExit(runtime: runtime)
+        var failure: WineError?
+        do {
+            try await Wine.runWine(["wineboot", "--init"], runtime: runtime, logName: "wineboot",
+                                   environment: ["WINEDLLOVERRIDES": "mscoree,mshtml="],
+                                   timeout: Self.winebootTimeout)
+            try await Wine.waitForExit(runtime: runtime)
+        } catch let error as WineError {
+            failure = error
+        }
+
+        // Trust the files, not the exit status: wineboot can report success without having
+        // created anything, and fail after having created everything.
+        let state = pfanne.prefixState
+        guard state == .ready else {
+            throw PfanneError.prefixNotCreated(
+                reason: Self.describe(state), wine: failure?.errorDescription,
+                hint: knownProblemHint(for: runtime.engine), log: failure?.log ?? RunLog.latest(for: pfanne))
+        }
         try await apply(runtime: runtime, engineChanged: false)
+    }
+
+    public static func describe(_ state: Pfanne.PrefixState) -> String {
+        switch state {
+        case .missing: return "Wine didn't create the Windows environment (no registry, no C: drive)."
+        case .incomplete(let what): return "The Windows environment is incomplete: \(what)."
+        case .ready: return ""
+        }
+    }
+
+    /// A known reason why this engine can't create prefixes, if any.
+    func knownProblemHint(for engine: InstalledComponent) -> String? {
+        engine.componentSource?.knownProblems[engine.version]
     }
 
     /// Updates the prefix if the settings changed since they were last applied.
@@ -47,6 +93,10 @@ public struct PfanneSetup: Sendable {
     @discardableResult
     public func applyIfNeeded(to pfanne: Pfanne) async throws -> WineRuntime {
         guard Rosetta.isInstalled else { throw WineError.rosettaMissing }
+        let state = pfanne.prefixState
+        guard state == .ready else {
+            throw PfanneError.needsRepair(name: pfanne.name, reason: Self.describe(state))
+        }
         let runtime = try WineRuntime.prepare(for: pfanne, store: store)
         let applied = Self.appliedState(of: pfanne)
         if applied?.fingerprint != runtime.appliedFingerprint {
@@ -61,7 +111,8 @@ public struct PfanneSetup: Sendable {
         if engineChanged {
             // A different Wine version updates the prefix's own files on first run;
             // do it now, while nothing else is running.
-            try await Wine.runWine(["wineboot", "--update"], runtime: runtime, logName: "wineboot update")
+            try await Wine.runWine(["wineboot", "--update"], runtime: runtime, logName: "wineboot update",
+                                   timeout: Self.winebootTimeout)
             try await Wine.waitForExit(runtime: runtime)
         }
 

@@ -42,10 +42,35 @@ public struct Pfanne: Identifiable, Hashable, Sendable {
     public var driveC: URL { prefixURL.appending(path: "drive_c", directoryHint: .isDirectory) }
     var appliedStateURL: URL { url.appending(path: ".applied.json") }
 
-    /// Whether `wineboot` has created the prefix yet.
-    public var isPrefixCreated: Bool {
-        FileManager.default.fileExists(atPath: prefixURL.appending(path: "system.reg").path)
+    /// How far the Wine prefix got.
+    public enum PrefixState: Equatable, Sendable {
+        /// Nothing usable yet: `wineboot` hasn't run or didn't get anywhere.
+        case missing
+        /// Started but unusable: the registry or the C: drive's Windows folder is missing.
+        case incomplete(String)
+        case ready
     }
+
+    public var prefixState: PrefixState {
+        let fileManager = FileManager.default
+        let registry = ["system.reg", "user.reg"].filter {
+            fileManager.fileExists(atPath: prefixURL.appending(path: $0).path)
+        }
+        let system32 = driveC.appending(path: "windows/system32")
+        let windowsFiles = (try? fileManager.contentsOfDirectory(atPath: system32.path).count) ?? 0
+        let hasDriveC = fileManager.fileExists(atPath: driveC.path)
+
+        if registry.isEmpty && !hasDriveC { return .missing }
+        if !hasDriveC { return .incomplete("the C: drive (drive_c) is missing") }
+        if registry.count < 2 { return .incomplete("the Windows registry is missing") }
+        // A real prefix has several hundred files in system32; wineboot that stopped early
+        // leaves it empty.
+        if windowsFiles < 50 { return .incomplete("the Windows system folder is empty or nearly empty") }
+        return .ready
+    }
+
+    /// Whether the prefix is complete and programs can run.
+    public var isPrefixCreated: Bool { prefixState == .ready }
 
     /// `~/Library/Logs/Schnitzel/<folder name>/`
     public var logsFolder: URL {

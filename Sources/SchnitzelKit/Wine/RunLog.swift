@@ -23,7 +23,7 @@ public enum RunLog {
     /// Logs older than this many runs are deleted, per Pfanne.
     static let keep = 50
 
-    static func create(for runtime: WineRuntime, name: String) throws -> FileHandle {
+    static func create(for runtime: WineRuntime, name: String) throws -> (handle: FileHandle, url: URL) {
         let folder = runtime.pfanne.logsFolder
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         prune(folder)
@@ -50,7 +50,7 @@ public enum RunLog {
         header += runtime.dxvk.map { ", DXVK \($0.version) installed" } ?? ""
         header += "\nHigh Resolution Mode: \(settings.wine.highResolutionMode ? "on" : "off")\n\n"
         handle.write(line: header)
-        return handle
+        return (handle, url)
     }
 
     /// The most recent log file of a Pfanne, if any.

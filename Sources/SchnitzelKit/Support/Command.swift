@@ -29,7 +29,8 @@ public enum Command {
     @discardableResult
     public static func run(_ executable: String, _ arguments: [String],
                            environment: [String: String]? = nil,
-                           currentDirectory: URL? = nil) async throws -> String {
+                           currentDirectory: URL? = nil,
+                           timeout: Duration? = nil) async throws -> String {
         let outputURL = FileManager.default.temporaryDirectory
             .appending(path: "schnitzel-command-\(UUID().uuidString).log")
         FileManager.default.createFile(atPath: outputURL.path, contents: nil)
@@ -45,18 +46,45 @@ public enum Command {
         process.standardError = output
         process.standardInput = FileHandle.nullDevice
 
-        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(throwing: error)
+        // Either the process finishes, or the timeout fires first and the process is stopped.
+        let (status, timedOut) = try await withThrowingTaskGroup(of: Int32?.self) { group -> (Int32, Bool) in
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
+                    do {
+                        try process.run()
+                    } catch {
+                        process.terminationHandler = nil
+                        continuation.resume(throwing: error)
+                    }
+                }
             }
+            if let timeout {
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    return nil
+                }
+            }
+            var timedOut = false
+            while let result = try await group.next() {
+                guard let status = result else {
+                    timedOut = true
+                    if process.isRunning { process.terminate() }
+                    continue // Wait for the process to report that it stopped.
+                }
+                group.cancelAll()
+                return (status, timedOut)
+            }
+            return (-1, timedOut)
         }
         try? output.close()
 
         let text = (try? String(contentsOf: outputURL, encoding: .utf8)) ?? ""
+        if timedOut, let timeout {
+            let name = ([URL(fileURLWithPath: executable).lastPathComponent] + arguments).joined(separator: " ")
+            throw ComponentError.commandFailed(name, status: status,
+                                               output: "Stopped after \(timeout.components.seconds) seconds.\n\(text)")
+        }
         guard status == 0 else {
             let name = ([URL(fileURLWithPath: executable).lastPathComponent] + arguments).joined(separator: " ")
             throw ComponentError.commandFailed(name, status: status, output: text)

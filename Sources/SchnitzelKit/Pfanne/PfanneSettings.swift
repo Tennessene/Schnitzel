@@ -240,6 +240,8 @@ public enum PfanneError: Error, LocalizedError, Equatable {
     case engineNotPinned
     case componentMissing(ComponentKind, String)
     case nothingToRollBack
+    case prefixNotCreated(reason: String, wine: String?, hint: String?, log: URL?)
+    case needsRepair(name: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -257,6 +259,13 @@ public enum PfanneError: Error, LocalizedError, Equatable {
             return "\(kind.displayName) \(version) isn't installed. Install it in Components, or pick another version."
         case .nothingToRollBack:
             return "There is no earlier version to go back to."
+        case .prefixNotCreated(let reason, let wine, let hint, let log):
+            var text = "The \(SchnitzelInfo.pfanneSingular) couldn't be set up. \(reason)"
+            if let hint { text += "\n\n\(hint)" }
+            if let wine { text += "\n\n\(wine)" } else if let log { text += "\n\nLog: \(log.path)" }
+            return text
+        case .needsRepair(let name, let reason):
+            return "“\(name)” needs to be repaired before programs can run. \(reason) Click Repair in the \(SchnitzelInfo.pfanneSingular)'s page."
         }
     }
 }

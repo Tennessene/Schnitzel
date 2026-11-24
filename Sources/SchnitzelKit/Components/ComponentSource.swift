@@ -45,6 +45,9 @@ public struct ComponentSource: Sendable, Identifiable, Equatable {
     public var supportedListURL: URL? = nil
     /// A stand-in that Schnitzel's own builds will replace (see SCHNITZEL_PLAN.md).
     public var isTemporaryReference: Bool = false
+    /// Installed version names known not to work in Schnitzel, with the reason. They are
+    /// never recommended and are labelled in Components.
+    public var knownProblems: [String: String] = [:]
 
     // MARK: Sources
 
@@ -54,7 +57,15 @@ public struct ComponentSource: Sendable, Identifiable, Equatable {
         repository: "Sikarugir-App/Engines",
         assetPattern: #"^(WS12Wine.+)\.tar\.xz$"#, versionPrefix: "sikarugir-engine",
         supportedListURL: URL(string: "https://raw.githubusercontent.com/Sikarugir-App/Engines/main/EngineList.txt"),
-        isTemporaryReference: true)
+        isTemporaryReference: true,
+        knownProblems: [
+            // Checked November 2026 on macOS 26.6: every Windows process after the first
+            // exits at once ("failed to start wineboot 1"), so no Pfanne can be created.
+            // Sikarugir's maintainer says its engines only work inside Sikarugir
+            // (Sikarugir-App/Sikarugir#295); 10.0_8 works in Schnitzel.
+            "sikarugir-engine-WS12WineSikarugir11.0_1":
+                "This engine only works inside Sikarugir's own app: Wine can't start any Windows program with it in Schnitzel. Use sikarugir-engine-WS12WineSikarugir10.0_8 instead."
+        ])
 
     public static let wineHQEngines = ComponentSource(
         id: "winehq-engines", kind: .engine, displayName: "WineHQ builds",
@@ -160,6 +171,8 @@ public struct AvailableComponent: Sendable, Identifiable, Equatable, Hashable {
     public var isRecommended: Bool = false
     /// Listed as supported by the source's maintainers (only for sources with a supported list).
     public var isSupported: Bool = true
+    /// Why this version doesn't work in Schnitzel, if it is known not to.
+    public var knownProblem: String? = nil
 
     /// The asset name without its archive extension, as supported lists name it.
     var assetStem: String {
@@ -243,11 +256,17 @@ public struct ReleaseCatalog: Sendable {
                     .filter { !$0.isEmpty }
             }
         }
-        return Self.order(available, supported: supported, isDefaultSource: source.isDefault)
+        let marked = available.map { component -> AvailableComponent in
+            var component = component
+            component.knownProblem = source.knownProblems[component.version]
+            return component
+        }
+        return Self.order(marked, supported: supported, isDefaultSource: source.isDefault)
     }
 
     /// Puts supported versions first, in the maintainers' order, then the rest newest first.
-    /// Marks the first one as recommended if the source is the default for its kind.
+    /// Marks the first one without a known problem as recommended, if the source is the
+    /// default for its kind.
     static func order(_ available: [AvailableComponent], supported: [String]?,
                       isDefaultSource: Bool) -> [AvailableComponent] {
         var result: [AvailableComponent]
@@ -262,7 +281,9 @@ public struct ReleaseCatalog: Sendable {
         } else {
             result = available
         }
-        if isDefaultSource, !result.isEmpty { result[0].isRecommended = true }
+        if isDefaultSource, let index = result.firstIndex(where: { $0.knownProblem == nil }) {
+            result[index].isRecommended = true
+        }
         return result
     }
 
