@@ -5,7 +5,7 @@
 # This file is part of Schnitzel, licensed under the GNU General Public License v3.0 or later.
 #
 # Usage: engines/scripts/build-wine.sh INPUTS_DIR OUTPUT_DIR
-#   Needs OUTPUT_DIR/deps from build-unix-libs.sh and build-moltenvk.sh.
+#   Needs OUTPUT_DIR/deps from build-unix-libs.sh and OUTPUT_DIR/moltenvk from build-moltenvk.sh.
 #   Installs Wine into OUTPUT_DIR/wine (bin/, lib/wine/, share/wine/).
 #
 # A WoW64 build (64-bit and 32-bit Windows programs, 64-bit unix side) with llvm-mingw for
@@ -18,10 +18,11 @@ inputs="${1:?usage: build-wine.sh INPUTS_DIR OUTPUT_DIR}"
 output="${2:?usage: build-wine.sh INPUTS_DIR OUTPUT_DIR}"
 output="$(cd "$output" && pwd)"
 deps="$output/deps"
+moltenvk="$output/moltenvk"
 install="$output/wine"
 work="$output/work-wine"
-[[ -f "$deps/lib/libgnutls.30.dylib" && -f "$deps/lib/libMoltenVK.dylib" ]] \
-    || { echo "error: build the libraries and MoltenVK first ($deps)" >&2; exit 1; }
+[[ -f "$deps/lib/libgnutls.30.dylib" && -f "$moltenvk/lib/libMoltenVK.dylib" ]] \
+    || { echo "error: build the libraries and MoltenVK first ($deps, $moltenvk)" >&2; exit 1; }
 rm -rf "$install" "$work"
 mkdir -p "$work"
 
@@ -42,7 +43,7 @@ flex --version | head -1
 
 export PKG_CONFIG_PATH="$deps/lib/pkgconfig"
 export CPPFLAGS="-I$deps/include"
-export LDFLAGS="$LDFLAGS -L$deps/lib"
+export LDFLAGS="$LDFLAGS -L$deps/lib -L$moltenvk/lib"
 
 step "Unpack CodeWeavers' Wine"
 unpack_crossover "$inputs" wine "$work/source"

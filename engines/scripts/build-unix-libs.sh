@@ -39,6 +39,7 @@ fix_install_name() {
         [[ -f "$prefix/lib/$(basename "$dependency")" ]] || continue
         install_name_tool -change "$dependency" "@loader_path/$(basename "$dependency")" "$library"
     done < <(otool -L "$library" | tail -n +2 | awk '{print $1}' | grep "^$prefix/lib/\|^@rpath/" | grep -v "/$name\$")
+    codesign --force --sign - "$library"  # install_name_tool breaks the signature.
 }
 
 step "GMP $(input_field gmp version)"
@@ -72,7 +73,8 @@ unpack_crossover "$inputs" gnutls "$work/gnutls"
     && make -j"$JOBS" && make install)
 fix_install_name "$prefix/lib/libgnutls.30.dylib"
 cp "$work/gnutls/LICENSE" "$prefix/licenses/GnuTLS-LICENSE"
-[[ -f "$work/gnutls/COPYING.LESSERv2" ]] && cp "$work/gnutls/COPYING.LESSERv2" "$prefix/licenses/GnuTLS-COPYING.LESSERv2"
+cp "$work/gnutls/doc/COPYING.LESSER" "$prefix/licenses/GnuTLS-COPYING.LESSER"
+cp "$work/gnutls/lib/accelerated/x86/license.txt" "$prefix/licenses/GnuTLS-x86-accelerated-license.txt"
 
 step "FreeType $(input_field freetype version)"
 unpack "$(input_archive "$inputs" freetype)" "$work/freetype"

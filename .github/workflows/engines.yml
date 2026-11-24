@@ -96,3 +96,72 @@ jobs:
           path: engines/build/test-programs/*.exe
           retention-days: 7
           if-no-files-found: error
+
+  # Each build job caches its output folder, keyed by the hash of everything that goes into
+  # it, and skips the build when that cache exists. Folders move between jobs through the
+  # cache, not artifacts: upload-artifact drops symlinks and file permissions.
+  unix-libs:
+    name: Unix libraries (M2)
+    needs: [config, inputs]
+    runs-on: ${{ needs.config.outputs.build-runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Restore the built libraries
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/deps
+          key: engine-unix-libs-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-unix-libs.sh', 'engines/scripts/check-unix-libs.sh') }}
+      - name: Restore the inputs cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/.cache/inputs
+          key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
+          fail-on-cache-miss: true
+      - name: Build the libraries
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: engines/scripts/build-unix-libs.sh engines/.cache/inputs engines/build
+      - name: Check the libraries
+        run: engines/scripts/check-unix-libs.sh engines/build/deps
+      - name: Keep the configure logs of a failed build
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unix-libs-logs
+          path: engines/build/work-unix/**/config.log
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Disk space
+        if: always()
+        run: df -h . | tail -1
+
+  moltenvk:
+    name: MoltenVK (M3)
+    needs: [config, inputs]
+    runs-on: ${{ needs.config.outputs.build-runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Restore the built MoltenVK
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/moltenvk
+          key: engine-moltenvk-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-moltenvk.sh') }}
+      - name: Restore the inputs cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/.cache/inputs
+          key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
+          fail-on-cache-miss: true
+      - name: Build MoltenVK
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: engines/scripts/build-moltenvk.sh engines/.cache/inputs engines/build
+      - name: Show what it was built from
+        run: cat engines/build/moltenvk/revisions.txt
+      - name: Disk space
+        if: always()
+        run: df -h . | tail -1
