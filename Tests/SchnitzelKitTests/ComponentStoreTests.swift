@@ -199,6 +199,12 @@ struct Scratch {
         let d3dMetal = try await store.importFolder(.d3dMetal, version: "3.0", from: lib, sourceDescription: "test")
         #expect(d3dMetal.manifest.rootPath == "lib")
 
+        var pfanne = try PfanneStore(root: scratch.url.appending(path: "Pfannen")).create(name: "D3DMetal", engine: "E1")
+        pfanne.settings.pins.d3dMetal = d3dMetal.version
+        let env = try WineRuntime.prepare(for: pfanne, store: store).environment()
+        #expect(env["CX_APPLEGPTK_LIBD3DSHARED_PATH"]?.hasSuffix("lib/external/libd3dshared.dylib") == true)
+        #expect(env["CX_ACTIVE_GRAPHICS_BACKEND"] == "d3dmetal")
+
         let root = try store.engineRoot(engine: engine, provider: .d3dMetal, overlay: d3dMetal)
         #expect(scratch.contents(root.appending(path: "lib/wine/x86_64-windows/d3d11.dll")) == "apple d3d11")
         #expect(scratch.contents(root.appending(path: "lib/wine/x86_64-windows/dxgi.dll")) == "wine dxgi")

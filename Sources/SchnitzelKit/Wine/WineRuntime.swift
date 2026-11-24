@@ -81,9 +81,28 @@ public struct WineRuntime: Sendable {
         if let libraries {
             env.merge(RuntimeLibraries.environment(for: libraries)) { $1 }
         }
+        env.merge(graphicsEnvironment) { $1 }
         pfanne.settings.environmentVariables(wineEnv: &env)
         env.merge(extra) { $1 }
         return env
+    }
+
+    /// Variables CodeWeavers' Wine reads to work with the active graphics layer (found in
+    /// the CrossOver 26.3.0 source). `CX_APPLEGPTK_LIBD3DSHARED_PATH` lets ntdll register
+    /// D3DMetal's code regions with Rosetta; without it D3DMetal can misbehave.
+    /// `CX_ACTIVE_GRAPHICS_BACKEND` tells win32u which layer is active.
+    var graphicsEnvironment: [String: String] {
+        switch graphics.provider {
+        case .d3dMetal:
+            return [
+                "CX_APPLEGPTK_LIBD3DSHARED_PATH": engineRoot.appending(path: "lib/external/libd3dshared.dylib").path,
+                "CX_ACTIVE_GRAPHICS_BACKEND": "d3dmetal"
+            ]
+        case .dxmt:
+            return ["CX_ACTIVE_GRAPHICS_BACKEND": "dxmt"]
+        case .wineD3D:
+            return [:]
+        }
     }
 
     /// Fingerprint of everything `PfanneSetup.apply` writes into the prefix. When it
