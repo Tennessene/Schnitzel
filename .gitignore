@@ -3,3 +3,7 @@
 build/
 .swiftpm/
 *.xcodeproj/xcuserdata/
+__pycache__/
+*.pyc
+engines/.cache/
+engines/build/
