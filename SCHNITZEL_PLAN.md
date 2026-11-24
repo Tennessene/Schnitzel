@@ -174,8 +174,8 @@ Build plan (written November 2026, before the build work starts):
 
 *Milestones.* Each milestone gets small commits and a test before the next:
 - **M1:** `inputs.json` (every input pinned by URL, version, license and SHA-256, **including the llvm-mingw toolchain**), the fetch-and-verify script with tests, and the workflow skeleton with caching. The workflow also checks the toolchain by building a tiny 32-bit and 64-bit Windows test program, which M4's prefix check reuses. *Done (November 2026): first workflow runs passed on `macos-26-intel` in about 2 minutes; a second run restored all inputs from the cache and re-verified them.*
-- **M2:** unix libraries. *In progress: build scripts for M2–M4 are written but untested (commit `069d136`, "WIP"); see `docs/HANDOFF.md`.*
-- **M3:** MoltenVK.
+- **M2:** unix libraries. *Done (November 2026): GMP, Nettle, CodeWeavers' GnuTLS, FreeType, SDL2 and libinotify build on `macos-26-intel` in about 10 minutes, all x86_64 with a macOS 14 minimum, linked only to the system and each other. Lessons: the plain install names Wine needs are set only after everything is built (configure's test programs must still load the libraries), and libinotify must not use `fdclosedir()`, which the runner's newer SDK has but macOS before 26.4 doesn't. Every build now treats unguarded use of a macOS function newer than the deployment target as an error.*
+- **M3:** MoltenVK. *Done (November 2026): CodeWeavers' MoltenVK 1.2.10 with their SPIRV-Cross builds with Xcode 26.6 in about 30 minutes. The commits of the dependencies its script fetches from GitHub are recorded in `revisions.txt` and the engine's BUILDINFO.json.*
 - **M4:** Wine, packaging, loader check and prefix check (artifacts only). M4 also adds:
   - **32-bit and 64-bit programs.** The prefix check runs the 32-bit (i686) and the 64-bit (x86_64) test program built with llvm-mingw in M1. Each prints a fixed line and exits with a fixed code. The check passes only if both run through the WoW64 build and their output and exit codes match.
   - **CodeWeavers' features are compiled in.** The runner can't test D3DMetal itself (Schnitzel never bundles it), so the check proves the support is there:
@@ -193,7 +193,7 @@ Build plan (written November 2026, before the build work starts):
 
 | Label | Machine | Used for |
 |---|---|---|
-| `macos-26-intel` | Intel x86_64, 4 CPUs, 14 GB RAM, 14 GB disk | Building everything; the prefix check on Intel |
+| `macos-26-intel` | Intel x86_64, 4 CPUs, 14 GB RAM, 14 GB disk (documented; the runner actually showed about 136 GB free in November 2026, but don't rely on it) | Building everything; the prefix check on Intel |
 | `macos-26` (= `macos-latest`) | Apple Silicon (M1), 3 CPUs, 7 GB RAM, 14 GB disk | The prefix check on Apple Silicon with Rosetta |
 | `macos-15-intel` | Intel x86_64, same size | Fallback build runner if `macos-26-intel` misbehaves |
 
