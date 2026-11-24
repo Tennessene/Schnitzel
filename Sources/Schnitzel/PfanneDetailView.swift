@@ -55,6 +55,12 @@ struct PfanneDetailView: View {
 
             Section("Wine") {
                 componentPicker(.engine, title: "Engine", allowNone: false)
+                componentPicker(.libraries, title: "Runtime libraries", allowNone: true)
+                if pfanne.settings.pins.libraries == nil {
+                    Label("Without runtime libraries, text, HTTPS, Vulkan and controllers won't work.",
+                          systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
                 if pfanne.settings.previousPins != nil {
                     LabeledContent("Previous versions") {
                         Button("Roll Back") { model.rollBack(pfanne) }
@@ -134,7 +140,11 @@ struct PfanneDetailView: View {
             if let current, !versions.contains(current) {
                 Text("\(current) (missing)").tag(Optional(current))
             }
-            ForEach(versions, id: \.self) { Text($0).tag(Optional($0)) }
+            ForEach(model.installed(kind)) { component in
+                Text(component.componentSource?.isTemporaryReference == true
+                     ? "\(component.version) (temporary reference)" : component.version)
+                    .tag(Optional(component.version))
+            }
         }
     }
 

@@ -94,13 +94,13 @@ private struct WelcomeView: View {
         ContentUnavailableView {
             Label("Welcome to \(SchnitzelInfo.appName)", systemImage: "frying.pan")
         } description: {
-            if model.installed(.engine).isEmpty {
-                Text("\(SchnitzelInfo.tagline)\nStart by downloading a Wine engine in Components.")
+            if model.installed(.engine).isEmpty || model.installed(.libraries).isEmpty {
+                Text("\(SchnitzelInfo.tagline)\nStart by downloading a Wine engine and the runtime libraries in Components.")
             } else {
                 Text("\(SchnitzelInfo.tagline)\nCreate a \(SchnitzelInfo.pfanneSingular) to install a game or launcher.")
             }
         } actions: {
-            if model.installed(.engine).isEmpty {
+            if model.installed(.engine).isEmpty || model.installed(.libraries).isEmpty {
                 Button("Open Components") { openWindow(id: ComponentsWindow.id) }
                     .buttonStyle(.borderedProminent)
             } else {
@@ -127,7 +127,9 @@ struct NewPfanneSheet: View {
                     Text("None installed").tag(String?.none)
                 }
                 ForEach(engines) { engine in
-                    Text(engine.version).tag(Optional(engine.version))
+                    Text(engine.componentSource?.isTemporaryReference == true
+                         ? "\(engine.version) (temporary reference)" : engine.version)
+                        .tag(Optional(engine.version))
                 }
             }
             if engines.isEmpty {
@@ -135,7 +137,12 @@ struct NewPfanneSheet: View {
                     openWindow(id: ComponentsWindow.id)
                 }
             }
-            Text("Windows 10, \(model.installed(.d3dMetal).isEmpty ? "no D3DMetal yet" : "D3DMetal") and the newest installed graphics components. You can change all of this later.")
+            if model.installed(.libraries).isEmpty {
+                Label("No runtime libraries installed: text, HTTPS, Vulkan and controllers won't work. Download them in Components first.",
+                      systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            }
+            Text("Windows 10, \(model.installed(.d3dMetal).isEmpty ? "no D3DMetal yet" : "D3DMetal") and the default versions of the other components. You can change all of this later.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -156,6 +163,6 @@ struct NewPfanneSheet: View {
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || engine == nil)
             }
         }
-        .onAppear { engine = engine ?? engines.first?.version }
+        .onAppear { engine = engine ?? model.preferred(.engine)?.version }
     }
 }

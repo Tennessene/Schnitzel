@@ -27,9 +27,9 @@ struct ComponentsWindow: View {
 
     var body: some View {
         TabView {
-            ForEach([ComponentKind.engine, .dxvk, .dxmt, .d3dMetal], id: \.self) { kind in
+            ForEach([ComponentKind.engine, .libraries, .dxvk, .dxmt, .d3dMetal], id: \.self) { kind in
                 ComponentKindView(kind: kind)
-                    .tabItem { Text(kind == .engine ? "Wine Engines" : kind.displayName) }
+                    .tabItem { Text(kind == .engine ? "Wine Engines" : kind == .libraries ? "Libraries" : kind.displayName) }
             }
         }
         .padding()
@@ -82,7 +82,12 @@ private struct InstalledRow: View {
         let usedBy = model.usage(of: component)
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(component.version).font(.body.monospaced())
+                HStack {
+                    Text(component.version).font(.body.monospaced())
+                    if component.componentSource?.isTemporaryReference == true {
+                        TemporaryBadge()
+                    }
+                }
                 ForEach(component.manifest.notes, id: \.self) { note in
                     Text(note).font(.caption).foregroundStyle(.secondary)
                 }
@@ -123,7 +128,10 @@ private struct AvailableSection: View {
         } header: {
             HStack {
                 VStack(alignment: .leading) {
-                    Text(source.displayName)
+                    HStack {
+                        Text(source.displayName)
+                        if source.isTemporaryReference { TemporaryBadge() }
+                    }
                     Text(source.summary).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -171,6 +179,19 @@ private struct AvailableRow: View {
                 Button("Download") { Task { await model.download(component) } }
             }
         }
+    }
+}
+
+/// Marks components that Schnitzel's own builds will replace.
+private struct TemporaryBadge: View {
+    var body: some View {
+        Text("Temporary reference")
+            .font(.caption.bold())
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(.orange.opacity(0.2), in: Capsule())
+            .foregroundStyle(.orange)
+            .help("A stand-in until Schnitzel's own builds are ready.")
     }
 }
 

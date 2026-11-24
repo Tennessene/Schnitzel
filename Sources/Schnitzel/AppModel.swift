@@ -67,6 +67,14 @@ final class AppModel {
         installed[kind] ?? []
     }
 
+    /// The version new Pfannen use: the newest one installed from the kind's default
+    /// source, otherwise the newest one installed from anywhere.
+    func preferred(_ kind: ComponentKind) -> InstalledComponent? {
+        let all = installed(kind)
+        let defaultID = ComponentSource.defaultSource(for: kind)?.id
+        return all.first { $0.manifest.sourceID == defaultID } ?? all.first
+    }
+
     func loadCatalog(_ source: ComponentSource, force: Bool = false) async {
         guard force || available[source.id] == nil, !loadingCatalogs.contains(source.id) else { return }
         loadingCatalogs.insert(source.id)
@@ -133,9 +141,10 @@ final class AppModel {
     func createPfanne(name: String, engine: String) async -> Pfanne? {
         do {
             var pfanne = try pfanneStore.create(name: name, engine: engine)
-            pfanne.settings.pins.d3dMetal = installed(.d3dMetal).first?.version
-            pfanne.settings.pins.dxmt = installed(.dxmt).first?.version
-            pfanne.settings.pins.dxvk = installed(.dxvk).first?.version
+            pfanne.settings.pins.d3dMetal = preferred(.d3dMetal)?.version
+            pfanne.settings.pins.dxmt = preferred(.dxmt)?.version
+            pfanne.settings.pins.dxvk = preferred(.dxvk)?.version
+            pfanne.settings.pins.libraries = preferred(.libraries)?.version
             try pfanne.save()
             reload()
             selection = pfanne.id
