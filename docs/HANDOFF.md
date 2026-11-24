@@ -28,7 +28,7 @@ Read this first, then `SCHNITZEL_PLAN.md` ("Own engine builds", especially "Buil
 1. Get the `wine` job green (watch for configure tests that pick up too-new macOS functions: fix with `ac_cv_func_<name>=no`), then `package` and both `check-prefix` jobs.
 2. Try the Rosetta fallback build once (plan).
 3. Tag `engine-26.3.0-1`, push the tag, check the draft release appears with all files. Note: tag runs can't use the branch's caches, so the tag run builds everything from scratch (about 3 hours).
-4. Update the plan (M4/M5 done) and report to Anston. For testing he must **publish the draft as a pre-release** (drafts are invisible without signing in; the draft is already marked pre-release).
+4. Build **Install from file…** as SCHNITZEL_PLAN.md describes under "In Schnitzel" (Anston's change, November 24, 2026), remove `--prerelease` from the release job, then update the plan (M4/M5 done) and report. Anston tests drafts privately with Install from file; he never publishes untested engines, not even as pre-releases.
 
 ## GitHub Actions state
 

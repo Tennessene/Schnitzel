@@ -18,6 +18,7 @@ Changes are made in small steps on feature branches, compile-checked and unit-te
 - **Native macOS look.** SwiftUI, system colors, SF Symbols, standard sidebar. Propose the approach before rewriting anything big.
 - **Small steps.** One feature per branch, small commits, and each step must build and run before moving on. Ask before large refactors or deleting existing features.
 - **Terminology:** a bottle/wrapper is a **Pfanne** (plural **Pfannen**) everywhere in the UI, e.g. "Neue Pfanne", "GTA V Pfanne". Internal code names can stay whatever is clearest.
+- **This plan is the single source of truth.** `docs/HANDOFF.md` is only a temporary note for switching to a new Claude Code session: it is rewritten from scratch at each switch, and the new session deletes it once it has read it and confirmed this plan is up to date. If the handoff ever disagrees with this plan, the plan wins.
 
 ---
 
@@ -160,7 +161,7 @@ Build plan (written November 2026, before the build work starts):
 8. **Prefix check.** The required check described above, on `macos-15-intel` and on `macos-26` (Apple Silicon with Rosetta).
 9. **Publish.** Only for a tag `engine-<CrossOver version>-<build>` (for example `engine-26.3.0-1`), and only when steps 7 and 8 pass.
    - The workflow creates a **draft** GitHub release with the engine archive, the DXVK archive, a `SHA256SUMS` file and notes listing the inputs. GitHub also publishes each file's SHA-256 digest.
-   - The draft is published by hand after testing on Apple Silicon.
+   - The draft is a normal (not pre-release) draft. Anston tests it privately before anyone else can see it: signed in on GitHub, he downloads the engine archive and `SHA256SUMS` from the draft, installs the archive in Schnitzel with **Install from file…** (Components), and tests it on Apple Silicon. Only if it works does he publish the release by hand. Untested engines are never published, not even as pre-releases.
    - Untagged builds only produce workflow artifacts, kept for 7 days.
 
 *Not built in the first release:*
@@ -170,6 +171,11 @@ Build plan (written November 2026, before the build work starts):
 *In Schnitzel.*
 - Two new sources: `schnitzel-engines` (this repository, tag prefix `engine-`, version prefix `schnitzel-engine`) and `schnitzel-dxvk` (tag prefix `dxvk-`).
 - Schnitzel's engine contains its own libraries, so Pfannen using it need no runtime-libraries component.
+- `schnitzel-engines` may list GitHub pre-releases (labelled "Test build") in case one is ever published that way, but testing never depends on it: drafts are tested through Install from file.
+- **Install from file…** in Components (for engines, and for the other downloadable kinds where it fits): picks a local archive and installs it through exactly the same path as a download (unpacking, D3DMetal removal, validation, version naming from the file name, e.g. `schnitzel-engine-26.3.0-1.tar.xz` → `schnitzel-engine-26.3.0-1`, and the "brings its own libraries" detection).
+  - SHA-256: if a `SHA256SUMS` file is next to the archive, the archive is checked against it and refused on a mismatch (or if it isn't listed). Without one, Schnitzel shows the archive's SHA-256 and asks for confirmation before installing.
+  - The component records that it was installed from a local file, with the original file name and SHA-256, and shows this in its notes.
+  - When the same version later appears from the `schnitzel-engines` source (after the release is published) with the same SHA-256, Schnitzel recognizes it as the installed component instead of offering a duplicate; Pfannen pinned to it keep working. A different SHA-256 under the same version name is flagged, never silently replaced.
 - **Rule: Schnitzel's own engine does not replace the temporary Sikarugir 10.0_8 engine as Recommended until M7 (GStreamer) is done and Anston has tested that release on Apple Silicon.** Until then the own engine is offered next to it but not marked Recommended. Only then does `ComponentSource.defaultSourceIDs` switch to it, and the Sikarugir engine and Template libraries stop being recommended.
 
 *Milestones.* Each milestone gets small commits and a test before the next:
@@ -185,7 +191,7 @@ Build plan (written November 2026, before the build work starts):
     - At runtime, `wineboot` with `WINEMSYNC=1` must print `msync: up and running`, and the server must start its MSync Mach port.
     - A build missing any of these fails.
   - **How MSync is turned on:** it's off unless the environment variable `WINEMSYNC=1` is set for every Wine process and for `wineserver`. A Wine process that doesn't match the server's setting refuses to run (the "Server is running with WINEMSYNC" message). Schnitzel sets it in `PfanneSettings.environmentVariables` when a Pfanne's Sync setting is MSync, which is the default. `WineRuntime` passes the same environment to `wine` and `wineserver`. Schnitzel also sets `WINEESYNC=1` alongside it, because D3DMetal checks for ESync.
-- **M5:** draft releases and the Schnitzel sources.
+- **M5:** draft releases, the `schnitzel-engines` source, engines with their own libraries, and **Install from file…** with SHA-256 checks and duplicate matching (see "In Schnitzel" above). Done when a tagged build has created a draft release whose engine installs through Install from file.
 - **M6:** vkd3d and DXVK.
 - **M7:** GLib and GStreamer.
 
