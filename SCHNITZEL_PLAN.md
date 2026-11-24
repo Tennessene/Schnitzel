@@ -83,7 +83,7 @@ Each phase is its own branch (`phase-1-rebrand`, and so on) with small commits.
 - A minimal working UI (list, create, run, open C:, engine and graphics choice) so each piece can be tested. Phase 2 replaces it with the real design.
 - Checked with the real downloads (November 2026): `WS12WineSikarugir11.0_1` unpacks to `wswine.bundle/`, contains DXMT and no D3DMetal or MoltenVK, and loads its runtime libraries from outside the engine (hence the libraries component).
 
-Status (November 2026): built on branch `engine-pfanne-core`, with unit tests for everything that doesn't need a real Wine run. Next: testing on Apple Silicon with real downloads, using the Sikarugir engine as the temporary reference.
+Status (November 2026): built on branch `engine-pfanne-core`, with unit tests for everything that doesn't need a real Wine run, plus opt-in end-to-end tests with real engines. First test on Apple Silicon found that Sikarugir's `WS12WineSikarugir11.0_1` can't start Windows processes outside Sikarugir (Sikarugir-App/Sikarugir#295; Sikarugir's maintainer says its engines only run inside Sikarugir), so `WS12WineSikarugir10.0_8` (Wine 10) is the temporary reference instead. This is one more reason to build Schnitzel's own engine next.
 
 ## Own engine builds
 
