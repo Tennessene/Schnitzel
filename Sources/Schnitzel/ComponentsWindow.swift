@@ -157,6 +157,10 @@ private struct AvailableRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(component.version).font(.body.monospaced())
+                    if component.isPrerelease {
+                        Text("Test build").font(.caption.bold()).foregroundStyle(.orange)
+                            .help("Published as a pre-release on GitHub: a build that is still being tested.")
+                    }
                     if component.isRecommended {
                         Text("Recommended").font(.caption.bold()).foregroundStyle(.tint)
                     } else if component.knownProblem != nil {

@@ -45,6 +45,9 @@ public struct ComponentSource: Sendable, Identifiable, Equatable {
     public var supportedListURL: URL? = nil
     /// A stand-in that Schnitzel's own builds will replace (see SCHNITZEL_PLAN.md).
     public var isTemporaryReference: Bool = false
+    /// Also list GitHub pre-releases (labelled as such). Drafts are never listed: GitHub
+    /// hides them, and their files, from anyone not signed in to the repository.
+    public var includesPrereleases: Bool = false
     /// Installed version names known not to work in Schnitzel, with the reason. They are
     /// never recommended and are labelled in Components.
     public var knownProblems: [String: String] = [:]
@@ -66,6 +69,17 @@ public struct ComponentSource: Sendable, Identifiable, Equatable {
             "sikarugir-engine-WS12WineSikarugir11.0_1":
                 "This engine only works inside Sikarugir's own app: Wine can't start any Windows program with it in Schnitzel. Use sikarugir-engine-WS12WineSikarugir10.0_8 instead."
         ])
+
+    /// Schnitzel's own engine, built from CodeWeavers' Wine source by this repository's
+    /// GitHub Actions workflow (`engines/`). Each release is tagged `engine-<CrossOver
+    /// version>-<build>` and holds `schnitzel-engine-<CrossOver version>-<build>.tar.xz`.
+    /// Not the default until it has GStreamer (M7) and has been tested on Apple Silicon.
+    public static let schnitzelEngines = ComponentSource(
+        id: "schnitzel-engines", kind: .engine, displayName: "Schnitzel engines",
+        summary: "Schnitzel's own engine: Wine built in the open from CodeWeavers' Wine source, with MSync, D3DMetal support and its own runtime libraries. Early test builds; no game video playback (GStreamer) yet.",
+        repository: "Tennessene/Schnitzel",
+        assetPattern: #"^schnitzel-engine-(.+)\.tar\.xz$"#, versionPrefix: "schnitzel-engine",
+        tagPrefix: "engine-", includesPrereleases: true)
 
     public static let wineHQEngines = ComponentSource(
         id: "winehq-engines", kind: .engine, displayName: "WineHQ builds",
@@ -97,12 +111,13 @@ public struct ComponentSource: Sendable, Identifiable, Equatable {
         isTemporaryReference: true)
 
     public static let all: [ComponentSource] = [
-        .sikarugirEngines, .wineHQEngines, .dxvk, .dxmt, .sikarugirTemplateLibraries
+        .schnitzelEngines, .sikarugirEngines, .wineHQEngines, .dxvk, .dxmt, .sikarugirTemplateLibraries
     ]
 
     /// The one setting that decides which source is the default for each kind: its
     /// recommended version gets the "Recommended" label and is what new Pfannen use.
-    /// Change `.engine` to Schnitzel's own source once a build passes testing.
+    /// Change `.engine` to `schnitzelEngines` only once M7 (GStreamer) is done and that
+    /// release has been tested on Apple Silicon (see SCHNITZEL_PLAN.md).
     public static let defaultSourceIDs: [ComponentKind: String] = [
         .engine: sikarugirEngines.id,
         .dxvk: dxvk.id,
@@ -171,6 +186,8 @@ public struct AvailableComponent: Sendable, Identifiable, Equatable, Hashable {
     public var isRecommended: Bool = false
     /// Listed as supported by the source's maintainers (only for sources with a supported list).
     public var isSupported: Bool = true
+    /// Published as a GitHub pre-release (a test build).
+    public var isPrerelease: Bool = false
     /// Why this version doesn't work in Schnitzel, if it is known not to.
     public var knownProblem: String? = nil
 
@@ -294,7 +311,8 @@ public struct ReleaseCatalog: Sendable {
         let releases = try decoder.decode([Release].self, from: data)
 
         var result: [AvailableComponent] = []
-        for release in releases where !release.draft && !release.prerelease && source.matches(tag: release.tagName) {
+        for release in releases where !release.draft && source.matches(tag: release.tagName) {
+            if release.prerelease && !source.includesPrereleases { continue }
             for asset in release.assets where source.matches(assetName: asset.name) {
                 guard let version = source.version(fromAssetName: asset.name) else { continue }
                 result.append(AvailableComponent(
@@ -302,7 +320,7 @@ public struct ReleaseCatalog: Sendable {
                     assetName: asset.name, downloadURL: asset.browserDownloadUrl, size: asset.size,
                     sha256: asset.digest.flatMap(Self.sha256(fromDigest:)),
                     published: asset.updatedAt ?? release.publishedAt ?? .distantPast,
-                    releaseTag: release.tagName))
+                    releaseTag: release.tagName, isPrerelease: release.prerelease))
             }
         }
         return removingDuplicates(result).sorted { $0.published > $1.published }

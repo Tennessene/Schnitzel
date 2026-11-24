@@ -34,6 +34,25 @@ public enum RuntimeLibraries {
         "libinotify.0.dylib"     // file change notifications (winebus)
     ]
 
+    /// The libraries an engine must have in its own `lib/` to need no runtime-libraries
+    /// component. Schnitzel's own engine has them; its Wine loads MoltenVK directly, without
+    /// a Vulkan loader, as CrossOver's does.
+    public static let bundledInEngine = [
+        "libfreetype.6.dylib",
+        "libgnutls.30.dylib",
+        "libSDL2-2.0.0.dylib",
+        "libinotify.0.dylib",
+        "libMoltenVK.dylib"
+    ]
+
+    /// Whether the engine whose root folder (the one holding `bin/` and `lib/`) is `root`
+    /// brings its own runtime libraries.
+    public static func engineIncludesLibraries(root: URL) -> Bool {
+        bundledInEngine.allSatisfy {
+            FileManager.default.fileExists(atPath: root.appending(path: "lib").appending(path: $0).path)
+        }
+    }
+
     /// Library names that may be kept, with any number of `.<digits>` version parts:
     /// the required ones and what they load in turn. All open source.
     static let allowedNames = [

@@ -72,6 +72,38 @@ struct Scratch {
         #expect(leftovers == ["WS12WineTest1.0"])
     }
 
+    @Test func recognizesAnEngineWithItsOwnLibraries() async throws {
+        let scratch = try Scratch(); defer { scratch.remove() }
+        var files: [String: String] = [
+            "schnitzel-engine-26.3.0-1/bin/wine": "loader",
+            "schnitzel-engine-26.3.0-1/bin/wineserver": "server",
+            "schnitzel-engine-26.3.0-1/lib/wine/x86_64-unix/ntdll.so": "ntdll",
+            "schnitzel-engine-26.3.0-1/version": "26.3.0-1\n"
+        ]
+        for library in RuntimeLibraries.bundledInEngine {
+            files["schnitzel-engine-26.3.0-1/lib/\(library)"] = "library"
+        }
+        let store = ComponentStore(root: scratch.url.appending(path: "Components"))
+        let own = try await store.install(
+            .engine, version: "schnitzel-engine-26.3.0-1",
+            archive: try await scratch.archive(try scratch.tree("own", files), name: "own.tar.gz"), source: "test")
+        #expect(own.includesRuntimeLibraries)
+        #expect(own.manifest.notes.contains("Includes its own runtime libraries"))
+
+        // One library missing: the engine needs the runtime-libraries component.
+        files.removeValue(forKey: "schnitzel-engine-26.3.0-1/lib/libMoltenVK.dylib")
+        let partial = try await store.install(
+            .engine, version: "partial",
+            archive: try await scratch.archive(try scratch.tree("partial", files), name: "partial.tar.gz"), source: "test")
+        #expect(!partial.includesRuntimeLibraries)
+
+        let sikarugir = try await store.install(
+            .engine, version: "WS12WineTest1.0",
+            archive: try await scratch.archive(try scratch.tree("sik", Self.sikarugirStyleEngine), name: "sik.tar.gz"),
+            source: "test")
+        #expect(!sikarugir.includesRuntimeLibraries)
+    }
+
     @Test func prefersWine64InOlderEngines() async throws {
         let scratch = try Scratch(); defer { scratch.remove() }
         var files = Self.sikarugirStyleEngine

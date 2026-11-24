@@ -89,6 +89,20 @@ final class AppModel {
         return usable.first { $0.manifest.sourceID == defaultID } ?? usable.first
     }
 
+    /// Whether a Pfanne with this engine needs the runtime-libraries component: only
+    /// engines that don't bring their own libraries do.
+    func needsLibraries(engine version: String?) -> Bool {
+        guard let version, let engine = installed(.engine).first(where: { $0.version == version }) else { return true }
+        return !engine.includesRuntimeLibraries
+    }
+
+    /// Whether everything needed to create a working Pfanne is installed: an engine, and
+    /// the runtime libraries unless an installed engine brings its own.
+    var canCreatePfanne: Bool {
+        let engines = installed(.engine)
+        return !engines.isEmpty && (!installed(.libraries).isEmpty || engines.contains(where: \.includesRuntimeLibraries))
+    }
+
     /// Why an installed component doesn't work in Schnitzel, if that is known.
     func knownProblem(of component: InstalledComponent) -> String? {
         component.componentSource?.knownProblems[component.version]
@@ -166,7 +180,8 @@ final class AppModel {
             pfanne.settings.pins.d3dMetal = preferred(.d3dMetal)?.version
             pfanne.settings.pins.dxmt = preferred(.dxmt)?.version
             pfanne.settings.pins.dxvk = preferred(.dxvk)?.version
-            pfanne.settings.pins.libraries = preferred(.libraries)?.version
+            // Engines with their own libraries (Schnitzel's own) don't get the component.
+            pfanne.settings.pins.libraries = needsLibraries(engine: engine) ? preferred(.libraries)?.version : nil
             try pfanne.save()
             reload()
             selection = pfanne.id

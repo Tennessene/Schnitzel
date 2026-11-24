@@ -76,8 +76,12 @@ struct PfanneDetailView: View {
 
             Section("Wine") {
                 componentPicker(.engine, title: "Engine", allowNone: false)
-                componentPicker(.libraries, title: "Runtime libraries", allowNone: true)
-                if pfanne.settings.pins.libraries == nil {
+                if model.needsLibraries(engine: pfanne.settings.pins.engine) || pfanne.settings.pins.libraries != nil {
+                    componentPicker(.libraries, title: "Runtime libraries", allowNone: true)
+                } else {
+                    LabeledContent("Runtime libraries", value: "Included in the engine")
+                }
+                if pfanne.settings.pins.libraries == nil && model.needsLibraries(engine: pfanne.settings.pins.engine) {
                     Label("Without runtime libraries, text, HTTPS, Vulkan and controllers won't work.",
                           systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)

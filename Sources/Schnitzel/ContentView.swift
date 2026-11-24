@@ -101,13 +101,13 @@ private struct WelcomeView: View {
         ContentUnavailableView {
             Label("Welcome to \(SchnitzelInfo.appName)", systemImage: "frying.pan")
         } description: {
-            if model.installed(.engine).isEmpty || model.installed(.libraries).isEmpty {
+            if !model.canCreatePfanne {
                 Text("\(SchnitzelInfo.tagline)\nStart by downloading a Wine engine and the runtime libraries in Components.")
             } else {
                 Text("\(SchnitzelInfo.tagline)\nCreate a \(SchnitzelInfo.pfanneSingular) to install a game or launcher.")
             }
         } actions: {
-            if model.installed(.engine).isEmpty || model.installed(.libraries).isEmpty {
+            if !model.canCreatePfanne {
                 Button("Open Components") { openWindow(id: ComponentsWindow.id) }
                     .buttonStyle(.borderedProminent)
             } else {
@@ -150,7 +150,7 @@ struct NewPfanneSheet: View {
                 Label(problem, systemImage: "exclamationmark.octagon")
                     .foregroundStyle(.red)
             }
-            if model.installed(.libraries).isEmpty {
+            if model.installed(.libraries).isEmpty && model.needsLibraries(engine: engine) {
                 Label("No runtime libraries installed: text, HTTPS, Vulkan and controllers won't work. Download them in Components first.",
                       systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)

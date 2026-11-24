@@ -85,6 +85,9 @@ public enum ComponentInspector {
         if !files(in: root.appending(path: "lib"), named: "libMoltenVK.dylib", maxDepth: 3).isEmpty {
             notes.append("Includes MoltenVK")
         }
+        if RuntimeLibraries.engineIncludesLibraries(root: root) {
+            notes.append("Includes its own runtime libraries")
+        }
         if let version = try? String(contentsOf: root.appending(path: "version"), encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines), !version.isEmpty {
             notes.append("Reports version \(version)")

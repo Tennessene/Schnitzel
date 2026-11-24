@@ -40,7 +40,10 @@ public enum RunLog {
         var header = "\(SchnitzelInfo.pfanneSingular): \(settings.name)\n"
         header += "Folder: \(runtime.pfanne.url.path)\n"
         header += "Engine: \(runtime.engine.version)\n"
-        header += "Runtime libraries: \(runtime.libraries?.version ?? "none (fonts, HTTPS, Vulkan and controllers may not work)")\n"
+        let libraries = runtime.libraries?.version
+            ?? (runtime.engine.includesRuntimeLibraries ? "included in the engine"
+                : "none (fonts, HTTPS, Vulkan and controllers may not work)")
+        header += "Runtime libraries: \(libraries)\n"
         header += "Running from: \(runtime.engineRoot.path)\n"
         header += "Windows version: \(settings.wine.windowsVersion.pretty())\n"
         header += "Sync: \(settings.wine.enhancedSync.pretty())\n"

@@ -105,6 +105,14 @@ public struct InstalledComponent: Equatable, Hashable, Sendable, Identifiable {
         manifest.rootPath == "." ? folder : folder.appending(path: manifest.rootPath, directoryHint: .isDirectory)
     }
 
+    /// Engines only: whether the engine brings its own runtime libraries (FreeType,
+    /// GnuTLS, SDL2, libinotify and MoltenVK in its `lib/`), so Pfannen using it need no
+    /// runtime-libraries component. Read from disk, so it also works for engines installed
+    /// before Schnitzel looked for this.
+    public var includesRuntimeLibraries: Bool {
+        kind == .engine && RuntimeLibraries.engineIncludesLibraries(root: root)
+    }
+
     public static func == (lhs: InstalledComponent, rhs: InstalledComponent) -> Bool { lhs.id == rhs.id && lhs.manifest == rhs.manifest }
     public func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }

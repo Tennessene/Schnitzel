@@ -66,6 +66,56 @@ import Testing
         #expect(!ComponentSource.sikarugirTemplateLibraries.matches(assetName: "Template-1.0.tar.xz"))
     }
 
+    static let schnitzelReleases = Data(#"""
+    [
+      {"tag_name": "engine-26.3.0-2", "draft": true, "prerelease": false, "published_at": null,
+       "assets": [
+         {"name": "schnitzel-engine-26.3.0-2.tar.xz", "size": 1,
+          "browser_download_url": "https://example.com/draft.tar.xz", "updated_at": "2026-11-26T10:00:00Z"}
+       ]},
+      {"tag_name": "engine-26.3.0-1", "draft": false, "prerelease": true,
+       "published_at": "2026-11-25T10:00:00Z",
+       "assets": [
+         {"name": "schnitzel-engine-26.3.0-1.tar.xz", "size": 200,
+          "browser_download_url": "https://example.com/e.tar.xz",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "updated_at": "2026-11-25T10:00:00Z"},
+         {"name": "SHA256SUMS", "size": 1, "browser_download_url": "https://example.com/s",
+          "updated_at": "2026-11-25T10:00:00Z"},
+         {"name": "crossover-sources-26.3.0.tar.gz", "size": 1, "browser_download_url": "https://example.com/src",
+          "updated_at": "2026-11-25T10:00:00Z"}
+       ]},
+      {"tag_name": "v0.3.0", "draft": false, "prerelease": false, "published_at": "2026-11-20T10:00:00Z",
+       "assets": [
+         {"name": "Schnitzel-0.3.0.zip", "size": 1, "browser_download_url": "https://example.com/app.zip",
+          "updated_at": "2026-11-20T10:00:00Z"}
+       ]}
+    ]
+    """#.utf8)
+
+    @Test func schnitzelEnginesListPrereleasesButNeverDrafts() throws {
+        let available = try ReleaseCatalog.parse(Self.schnitzelReleases, source: .schnitzelEngines)
+        #expect(available.map(\.version) == ["schnitzel-engine-26.3.0-1"])
+        #expect(available[0].isPrerelease)
+        #expect(available[0].releaseTag == "engine-26.3.0-1")
+        #expect(available[0].sha256 == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                + "aaaaaaaa")
+        // Other sources still skip pre-releases.
+        #expect(try ReleaseCatalog.parse(Self.dxvkReleases, source: .dxvk).allSatisfy { !$0.isPrerelease })
+    }
+
+    @Test func schnitzelEnginesAreOfferedButNotTheDefault() {
+        // SCHNITZEL_PLAN.md: not Recommended until M7 (GStreamer) is done and tested.
+        #expect(ComponentSource.sources(for: .engine).contains(.schnitzelEngines))
+        #expect(!ComponentSource.schnitzelEngines.isDefault)
+        #expect(!ComponentSource.schnitzelEngines.isTemporaryReference)
+        #expect(ComponentSource.schnitzelEngines.version(fromAssetName: "schnitzel-engine-26.3.0-1.tar.xz")
+                == "schnitzel-engine-26.3.0-1")
+        #expect(!ComponentSource.schnitzelEngines.matches(assetName: "schnitzel-engine-26.3.0-1.tar.xz.sha256"))
+        #expect(ComponentSource.schnitzelEngines.matches(tag: "engine-26.3.0-1"))
+        #expect(!ComponentSource.schnitzelEngines.matches(tag: "v0.3.0"))
+    }
+
     @Test func versionNamesCannotClashBetweenSources() {
         // Versions are "<prefix>-<core>". If no prefix equals another or starts with
         // another followed by "-", two sources can never produce the same name.
@@ -152,7 +202,8 @@ import Testing
     func everySourceListsVersionsOnGitHub() async throws {
         for source in ComponentSource.all {
             let available = try await ReleaseCatalog().available(from: source)
-            #expect(!available.isEmpty, "\(source.id) lists nothing")
+            // Schnitzel's engines list nothing until the first release is published by hand.
+            #expect(!available.isEmpty || source == .schnitzelEngines, "\(source.id) lists nothing")
             if let newest = available.first {
                 print("\(source.id): \(available.count) versions, recommended \(newest.version), sha256: \(newest.sha256 != nil)")
             }
