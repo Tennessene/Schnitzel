@@ -158,11 +158,13 @@ Build plan (written November 2026, before the build work starts):
    - **DXVK: CodeWeavers' 1.10.3**, giving `x64/` and `x32/` DLLs. Never DXVK 2.x.
 7. **Package.** The engine archive `schnitzel-engine-<CrossOver version>-<build>.tar.xz` holds `bin/`, `lib/` (the dylibs), `lib/wine/`, `share/wine/`, `BUILDINFO.json` (every input and its hash, the commit, toolchain versions), `LICENSES/` and `SOURCE.md` (where every source is, for the LGPL). DXVK gets its own archive, so it stays a separate component in Schnitzel.
    - Package checks: no `D3DMetal.framework` or `libd3dshared.dylib` anywhere; every Mach-O file links only to system libraries or to files inside the package (`otool -L`).
-8. **Prefix check.** The required check described above, on `macos-15-intel` and on `macos-26` (Apple Silicon with Rosetta).
-9. **Publish.** Only for a tag `engine-<CrossOver version>-<build>` (for example `engine-26.3.0-1`), and only when steps 7 and 8 pass.
-   - The workflow creates a **draft** GitHub release with the engine archive, the DXVK archive, a `SHA256SUMS` file and notes listing the inputs. GitHub also publishes each file's SHA-256 digest.
+8. **Prefix check.** The required check described above, on `macos-26-intel` and on `macos-26` (Apple Silicon with Rosetta).
+9. **Publish.** Started by hand: run the Engines workflow on the branch with `release` set to `<CrossOver version>-<build>` (`gh workflow run engines.yml --ref <branch> -f release=26.3.0-1`). Not by pushing a tag: a tag's run can't read the branch's caches (GitHub shares only the run's own branch's and the default branch's caches), so it would rebuild everything; a run on the branch restores the libraries, MoltenVK and Wine in under a minute each. The release job runs only when steps 7 and 8 pass, and is the only job that may write to the repository.
+   - The workflow creates a **draft** GitHub release with the engine archive, a `SHA256SUMS` file, the exact source files it was built from (for the LGPL) and notes listing the inputs. GitHub also publishes each file's SHA-256 digest. The DXVK archive joins it in M6.
+   - The draft targets the build's commit; its tag `engine-<version>` is created only when the draft is published. If that tag already exists at another commit, the release job fails.
+   - If a check fails or is cancelled, re-run only the failed jobs (`gh run rerun <id> --failed`): the built engine is reused.
    - The draft is a normal (not pre-release) draft. Anston tests it privately before anyone else can see it: signed in on GitHub, he downloads the engine archive and `SHA256SUMS` from the draft, installs the archive in Schnitzel with **Install from file…** (Components), and tests it on Apple Silicon. Only if it works does he publish the release by hand. Untested engines are never published, not even as pre-releases.
-   - Untagged builds only produce workflow artifacts, kept for 7 days.
+   - Other builds are numbered development builds (`<CrossOver version>-dev.<run number>`) and only produce workflow artifacts, kept for 7 days.
 
 *Not built in the first release:*
 - **GLib and GStreamer** (used by `winegstreamer` for some games' video playback) are a separate milestone, because GStreamer is a large build. Until then the engine is configured without GStreamer, and the release notes say so.
@@ -191,7 +193,7 @@ Build plan (written November 2026, before the build work starts):
     - At runtime, `wineboot` with `WINEMSYNC=1` must print `msync: up and running`, and the server must start its MSync Mach port.
     - A build missing any of these fails.
   - **How MSync is turned on:** it's off unless the environment variable `WINEMSYNC=1` is set for every Wine process and for `wineserver`. A Wine process that doesn't match the server's setting refuses to run (the "Server is running with WINEMSYNC" message). Schnitzel sets it in `PfanneSettings.environmentVariables` when a Pfanne's Sync setting is MSync, which is the default. `WineRuntime` passes the same environment to `wine` and `wineserver`. Schnitzel also sets `WINEESYNC=1` alongside it, because D3DMetal checks for ESync.
-- **M5:** draft releases, the `schnitzel-engines` source, engines with their own libraries, and **Install from file…** with SHA-256 checks and duplicate matching (see "In Schnitzel" above). Done when a tagged build has created a draft release whose engine installs through Install from file.
+- **M5:** draft releases, the `schnitzel-engines` source, engines with their own libraries, and **Install from file…** with SHA-256 checks and duplicate matching (see "In Schnitzel" above). Done when a release run has created a draft release whose engine installs through Install from file. *Done (November 2026): run #13 created the draft "Schnitzel engine 26.3.0-1" (engine 162 MB, SHA-256 `1af2e7fa…44f9`); its archive passed the SHA256SUMS check and installed through the real Install from file code (opt-in test `installsARealEngineArchive`, run with `SCHNITZEL_ENGINE_ARCHIVE=<path>`). Awaiting Anston's test on Apple Silicon before he publishes it.*
 - **M6:** vkd3d and DXVK.
 - **M7:** GLib and GStreamer.
 
@@ -207,7 +209,7 @@ The labels are set in one place at the top of the workflow.
 
 When GitHub retires an image (it announces this months ahead in `actions/runner-images`; macOS 14 was retired on November 2, 2026):
 - Switch to the next newer image of the same kind and run a full build and prefix check before the next release.
-- If GitHub ever stops offering Intel macOS runners, build on Apple Silicon under Rosetta instead (`arch -x86_64` for the whole build). This is slower but produces the same x86_64 engine. Try it once during M4 so the fallback is known to work before it's needed.
+- If GitHub ever stops offering Intel macOS runners, build on Apple Silicon under Rosetta instead (`arch -x86_64` for the whole build). This is slower but produces the same x86_64 engine. Try it once so the fallback is known to work before it's needed: `gh workflow run engines.yml --ref <branch> -f rosetta=true`. *Not done yet: the first trial (run #11, November 2026) was cancelled to free runners for the release.*
 - No retirement date has been announced for `macos-15-intel` or `macos-26-intel` yet.
 
 *Time limits.* GitHub stops a job after 6 hours and allows at most 5 macOS jobs at once (free plan). A full Wine build on a 4-CPU Intel runner is expected to take about 1.5–3 hours, and the libraries, MoltenVK, vkd3d and DXVK together about another hour. So the build is split into separate jobs that each stay well under 6 hours:

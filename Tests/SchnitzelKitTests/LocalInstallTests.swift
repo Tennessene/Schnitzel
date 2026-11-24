@@ -178,4 +178,22 @@ import Testing
         #expect(resolved.folder == installed.folder)
         #expect(resolved.includesRuntimeLibraries)
     }
+
+    /// Installs a real engine archive (with its SHA256SUMS next to it) into a scratch store.
+    /// Only runs with SCHNITZEL_ENGINE_ARCHIVE=/path/to/schnitzel-engine-<version>.tar.xz.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["SCHNITZEL_ENGINE_ARCHIVE"] != nil))
+    func installsARealEngineArchive() async throws {
+        let scratch = try Scratch(); defer { scratch.remove() }
+        let url = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SCHNITZEL_ENGINE_ARCHIVE"]!)
+        let local = try LocalArchive.inspect(url, kind: .engine)
+        guard case .verified = local.checksum else {
+            Issue.record("no SHA256SUMS next to \(url.path)"); return
+        }
+        let store = ComponentStore(root: scratch.url.appending(path: "Components"))
+        let installed = try await store.installLocal(local)
+        #expect(installed.includesRuntimeLibraries)
+        #expect(installed.manifest.wineBinary == "bin/wine")
+        #expect(FileManager.default.isExecutableFile(atPath: installed.root.appending(path: "bin/wine").path))
+        print("installed \(installed.version) at \(installed.root.path); notes: \(installed.manifest.notes)")
+    }
 }
