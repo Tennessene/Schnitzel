@@ -134,6 +134,55 @@ Plan:
 - **Never bundle Apple's D3DMetal.** The build includes only Wine's own side of the D3DMetal hooks. A CI check fails the build if `D3DMetal.framework` or `libd3dshared.dylib` appears in the package. CrossOver's `CX_APPLEGPTK_LIBD3DSHARED_PATH` variable may let Schnitzel point Wine at the user's imported D3DMetal instead of copying it into an engine assembly; check this during the phase.
 - Schnitzel lists these releases as a third engine source (`ComponentSource`). When a build passes testing on Apple Silicon, it becomes the recommended engine and the Sikarugir engines are dropped from the default list.
 
+Build plan (written November 2026, before the build work starts):
+
+*Where things live.* `engines/inputs.json` pins every input by URL and SHA-256: the CrossOver source drop, the upstream release tarballs, llvm-mingw and the DXMT release. A build never downloads anything that isn't in that file. `engines/scripts/` holds one script per step (fetch, unix libraries, MoltenVK, Wine, PE components, package, checks), and `.github/workflows/engines.yml` runs them. The scripts also run on a Mac with Xcode, so a build can be reproduced outside GitHub.
+
+*Build order.* Everything is built for x86_64 (Wine runs under Rosetta on Apple Silicon), with a minimum of macOS 14, into a staging folder:
+1. **Fetch and verify.** Download every input and stop on any SHA-256 mismatch. The CrossOver drop's hash is recorded when it is first added to `inputs.json`.
+2. **Toolchain.** llvm-mingw (the macOS universal release, for Wine's Windows-side DLLs). From Homebrew: bison, flex, pkg-config, meson, ninja and glslang (DXVK's shaders). Xcode comes with the runner.
+3. **Unix libraries.** Built from source, matching what CrossOver ships in `lib64`:
+   - GMP 6.3.0 and Nettle 3.10 (upstream; Nettle linked into GnuTLS, as in CrossOver);
+   - **GnuTLS 3.8.3, CodeWeavers' copy**, with its bundled libtasn1 and libunistring;
+   - FreeType 2.13.3 (upstream);
+   - SDL2 2.32.x (upstream);
+   - libinotify-kqueue (upstream).
+4. **MoltenVK: CodeWeavers' 1.2.10**, built with Xcode. CrossOver ships `libMoltenVK.dylib` without a separate Vulkan loader. That suggests its Wine loads MoltenVK directly; confirm from Wine's configure output and copy that setup.
+5. **Wine: CodeWeavers' 11.0.**
+   - Configure as a WoW64 build (`--enable-archs=i386,x86_64`) with llvm-mingw and the staging libraries, without X11, using CodeWeavers' own macOS loader flags.
+   - `make install` into the staging folder.
+   - Then the loader check (second-stage reserved segments, see the 11.0_1 lesson above).
+6. **Windows-side components, with llvm-mingw:**
+   - **vkd3d: CodeWeavers' snapshot**, giving `libvkd3d-1.dll` and friends as CrossOver ships them;
+   - **DXVK: CodeWeavers' 1.10.3**, giving `x64/` and `x32/` DLLs. Never DXVK 2.x.
+7. **Package.** The engine archive `schnitzel-engine-<CrossOver version>-<build>.tar.xz` holds `bin/`, `lib/` (the dylibs), `lib/wine/`, `share/wine/`, `BUILDINFO.json` (every input and its hash, the commit, toolchain versions), `LICENSES/` and `SOURCE.md` (where every source is, for the LGPL). DXVK gets its own archive, so it stays a separate component in Schnitzel.
+   - Package checks: no `D3DMetal.framework` or `libd3dshared.dylib` anywhere; every Mach-O file links only to system libraries or to files inside the package (`otool -L`).
+8. **Prefix check.** The required check described above, on `macos-15-intel` and on `macos-26` (Apple Silicon with Rosetta).
+9. **Publish.** Only for a tag `engine-<CrossOver version>-<build>` (for example `engine-26.3.0-1`), and only when steps 7 and 8 pass.
+   - The workflow creates a **draft** GitHub release with the engine archive, the DXVK archive, a `SHA256SUMS` file and notes listing the inputs. GitHub also publishes each file's SHA-256 digest.
+   - The draft is published by hand after testing on Apple Silicon.
+   - Untagged builds only produce workflow artifacts, kept for 7 days.
+
+*Not built in the first release:*
+- **GLib and GStreamer** (used by `winegstreamer` for some games' video playback) are a separate milestone, because GStreamer is a large build. Until then the engine is configured without GStreamer, and the release notes say so.
+- **DXMT** keeps coming from DXMT's own releases (`3Shain/dxmt`, open source, built by its own CI; it isn't in the CrossOver drop and CrossOver ships the same project). Building it ourselves needs its own LLVM toolchain and can follow later if needed.
+
+*In Schnitzel.*
+- Two new sources: `schnitzel-engines` (this repository, tag prefix `engine-`, version prefix `schnitzel-engine`) and `schnitzel-dxvk` (tag prefix `dxvk-`).
+- Schnitzel's engine contains its own libraries, so Pfannen using it need no runtime-libraries component.
+- Once a release passes testing on Apple Silicon, `ComponentSource.defaultSourceIDs` switches to it, and the Sikarugir engine and Template libraries stop being recommended.
+
+*Milestones.* Each milestone gets small commits and a test before the next:
+- **M1:** `inputs.json`, fetch-and-verify, the workflow skeleton with caching.
+- **M2:** unix libraries.
+- **M3:** MoltenVK.
+- **M4:** Wine, packaging, loader check and prefix check (artifacts only).
+- **M5:** draft releases and the Schnitzel sources.
+- **M6:** vkd3d and DXVK.
+- **M7:** GLib and GStreamer.
+
+A full Wine build on a GitHub runner is expected to take 1–2 hours. Each step's results are cached, so a change to one step doesn't rebuild everything.
+
 What could go wrong:
 - **Build environment.** CrossOver's own build setup isn't in the source drop, so dependency versions, configure flags and the mingw toolchain have to be worked out. GitHub's macOS runners change their Xcode and SDK versions over time and can break builds; pin versions and cache the toolchain.
 - **Build time and limits.** A full Wine build takes well over an hour; caching helps. Jobs are limited to 6 hours.
