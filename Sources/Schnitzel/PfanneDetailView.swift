@@ -30,7 +30,28 @@ struct PfanneDetailView: View {
     var body: some View {
         let busy = model.busy[pfanne.id]
         let running = model.running[pfanne.id] ?? []
+        let state = pfanne.prefixState
         Form {
+            if state != .ready, busy == nil {
+                Section {
+                    Label {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("This \(SchnitzelInfo.pfanneSingular)'s Windows environment is missing or incomplete.")
+                                .bold()
+                            Text(PfanneSetup.describe(state))
+                            Text("Repair runs Wine's setup again. Files already in its C: drive are kept.")
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    }
+                    HStack {
+                        Button("Repair") { Task { await model.repair(pfanne) } }
+                            .buttonStyle(.borderedProminent)
+                        Button("Show Log") { model.showLatestLog(of: pfanne) }
+                    }
+                }
+            }
             Section {
                 if let busy {
                     HStack {
@@ -44,8 +65,9 @@ struct PfanneDetailView: View {
                 HStack {
                     Button("Run Program…", systemImage: "play.fill") { chooseProgram() }
                         .buttonStyle(.borderedProminent)
+                        .disabled(state != .ready)
                     Button("Open C: Drive", systemImage: "folder") { model.openDriveC(of: pfanne) }
-                        .disabled(!pfanne.isPrefixCreated)
+                        .disabled(state != .ready)
                     Button("Show Log", systemImage: "doc.text") { model.showLatestLog(of: pfanne) }
                     Button("Stop All", systemImage: "stop.fill") { Task { await model.stopAll(in: pfanne) } }
                         .disabled(running.isEmpty && busy == nil)

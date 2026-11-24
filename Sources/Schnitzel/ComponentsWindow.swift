@@ -88,6 +88,10 @@ private struct InstalledRow: View {
                         TemporaryBadge()
                     }
                 }
+                if let problem = model.knownProblem(of: component) {
+                    Label(problem, systemImage: "exclamationmark.octagon")
+                        .font(.caption).foregroundStyle(.red)
+                }
                 ForEach(component.manifest.notes, id: \.self) { note in
                     Text(note).font(.caption).foregroundStyle(.secondary)
                 }
@@ -155,6 +159,8 @@ private struct AvailableRow: View {
                     Text(component.version).font(.body.monospaced())
                     if component.isRecommended {
                         Text("Recommended").font(.caption.bold()).foregroundStyle(.tint)
+                    } else if component.knownProblem != nil {
+                        Text("Doesn't work in Schnitzel").font(.caption.bold()).foregroundStyle(.red)
                     } else if !component.isSupported {
                         Text("Not supported by its maintainers").font(.caption).foregroundStyle(.secondary)
                     }

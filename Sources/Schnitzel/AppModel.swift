@@ -42,6 +42,20 @@ final class AppModel {
     private(set) var running: [Pfanne.ID: [String]] = [:]
 
     var errorMessage: String?
+    /// The log that explains `errorMessage`, if any; the alert offers to show it.
+    var errorLog: URL?
+
+    func show(_ error: Error) {
+        errorMessage = error.localizedDescription
+        switch error {
+        case let error as WineError:
+            errorLog = error.log
+        case PfanneError.prefixNotCreated(_, _, _, let log):
+            errorLog = log
+        default:
+            errorLog = nil
+        }
+    }
 
     init() {
         reload()
@@ -70,9 +84,14 @@ final class AppModel {
     /// The version new Pfannen use: the newest one installed from the kind's default
     /// source, otherwise the newest one installed from anywhere.
     func preferred(_ kind: ComponentKind) -> InstalledComponent? {
-        let all = installed(kind)
+        let usable = installed(kind).filter { knownProblem(of: $0) == nil }
         let defaultID = ComponentSource.defaultSource(for: kind)?.id
-        return all.first { $0.manifest.sourceID == defaultID } ?? all.first
+        return usable.first { $0.manifest.sourceID == defaultID } ?? usable.first
+    }
+
+    /// Why an installed component doesn't work in Schnitzel, if that is known.
+    func knownProblem(of component: InstalledComponent) -> String? {
+        component.componentSource?.knownProblems[component.version]
     }
 
     func loadCatalog(_ source: ComponentSource, force: Bool = false) async {
@@ -137,10 +156,13 @@ final class AppModel {
     // MARK: Pfannen
 
     /// Creates a Pfanne with the given engine and the newest graphics components, then
-    /// creates its Wine prefix.
+    /// creates its Wine prefix. If Wine can't create a complete prefix, the new Pfanne is
+    /// removed again and the reason is shown, so no broken Pfanne is left behind.
     func createPfanne(name: String, engine: String) async -> Pfanne? {
+        var created: Pfanne?
         do {
             var pfanne = try pfanneStore.create(name: name, engine: engine)
+            created = pfanne
             pfanne.settings.pins.d3dMetal = preferred(.d3dMetal)?.version
             pfanne.settings.pins.dxmt = preferred(.dxmt)?.version
             pfanne.settings.pins.dxvk = preferred(.dxvk)?.version
@@ -155,10 +177,34 @@ final class AppModel {
             reload()
             return pfanne
         } catch {
-            errorMessage = error.localizedDescription
+            if let created {
+                await discardFailed(created)
+            }
+            show(error)
             reload()
             return nil
         }
+    }
+
+    /// Removes a Pfanne whose setup failed. It only contains what Schnitzel and Wine just
+    /// created, so it is deleted rather than moved to the Trash. Its logs are kept.
+    private func discardFailed(_ pfanne: Pfanne) async {
+        if let runtime = try? WineRuntime.prepare(for: pfanne, store: componentStore) {
+            try? await Wine.kill(runtime: runtime)
+        }
+        try? FileManager.default.removeItem(at: pfanne.url)
+    }
+
+    /// Runs Wine's setup again on a Pfanne whose Windows environment is missing or incomplete.
+    func repair(_ pfanne: Pfanne) async {
+        busy[pfanne.id] = "Repairing the Windows environment…"
+        defer { busy[pfanne.id] = nil }
+        do {
+            try await PfanneSetup(store: componentStore).repairPrefix(for: pfanne)
+        } catch {
+            show(error)
+        }
+        reload()
     }
 
     /// Saves changed settings. They are written into the prefix before the next launch.
@@ -200,10 +246,7 @@ final class AppModel {
             let runtime: WineRuntime
             do {
                 defer { busy[pfanne.id] = nil }
-                if !pfanne.isPrefixCreated {
-                    busy[pfanne.id] = "Setting up the Windows environment…"
-                    try await PfanneSetup(store: componentStore).createPrefix(for: pfanne)
-                }
+                // Throws `needsRepair` if the prefix is missing or incomplete.
                 runtime = try await PfanneSetup(store: componentStore).applyIfNeeded(to: pfanne)
             }
 
@@ -213,9 +256,9 @@ final class AppModel {
             }
             // Output goes to the run's log file. Many games exit with a non-zero status
             // normally, so the exit status is only recorded there, not shown as an error.
-            for await _ in try Wine.runProgram(at: file, runtime: runtime) {}
+            for await _ in try Wine.runProgram(at: file, runtime: runtime).events {}
         } catch {
-            errorMessage = error.localizedDescription
+            show(error)
         }
     }
 

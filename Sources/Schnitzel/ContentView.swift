@@ -76,9 +76,16 @@ struct ContentView: View {
         }
         .alert("Something went wrong", isPresented: Binding(
             get: { model.errorMessage != nil },
-            set: { if !$0 { model.errorMessage = nil } }
+            set: { if !$0 { model.errorMessage = nil; model.errorLog = nil } }
         )) {
-            Button("OK") { model.errorMessage = nil }
+            if let log = model.errorLog {
+                Button("Show Log") {
+                    NSWorkspace.shared.activateFileViewerSelecting([log])
+                    model.errorMessage = nil
+                    model.errorLog = nil
+                }
+            }
+            Button("OK", role: .cancel) { model.errorMessage = nil; model.errorLog = nil }
         } message: {
             Text(model.errorMessage ?? "")
         }
@@ -127,7 +134,8 @@ struct NewPfanneSheet: View {
                     Text("None installed").tag(String?.none)
                 }
                 ForEach(engines) { engine in
-                    Text(engine.componentSource?.isTemporaryReference == true
+                    Text(model.knownProblem(of: engine) != nil ? "\(engine.version) (doesn't work in Schnitzel)"
+                         : engine.componentSource?.isTemporaryReference == true
                          ? "\(engine.version) (temporary reference)" : engine.version)
                         .tag(Optional(engine.version))
                 }
@@ -136,6 +144,11 @@ struct NewPfanneSheet: View {
                 Button("Download an engine in Components…") {
                     openWindow(id: ComponentsWindow.id)
                 }
+            }
+            if let engine, let chosen = engines.first(where: { $0.version == engine }),
+               let problem = model.knownProblem(of: chosen) {
+                Label(problem, systemImage: "exclamationmark.octagon")
+                    .foregroundStyle(.red)
             }
             if model.installed(.libraries).isEmpty {
                 Label("No runtime libraries installed: text, HTTPS, Vulkan and controllers won't work. Download them in Components first.",
@@ -160,7 +173,8 @@ struct NewPfanneSheet: View {
                     dismiss()
                     Task { await model.createPfanne(name: name, engine: engine) }
                 }
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || engine == nil)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || engine == nil
+                          || engines.first(where: { $0.version == engine }).flatMap(model.knownProblem(of:)) != nil)
             }
         }
         .onAppear { engine = engine ?? model.preferred(.engine)?.version }
