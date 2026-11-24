@@ -63,7 +63,7 @@ Read this first, then `SCHNITZEL_PLAN.md` ("Own engine builds", especially "Buil
 
 - **Python's built-in HTTPS downloads:** they fail on Anston's Mac, because that Python has no certificate store (CERTIFICATE_VERIFY_FAILED). `fetch.py` uses curl for that reason.
 - **Running Wine through system tools:** `perl`, `/usr/bin/env` when the variables are inherited, and other SIP-protected programs strip `DYLD_*` variables. Set `DYLD_FALLBACK_LIBRARY_PATH` inside the script, or pass it as an argument to `env`, then exec wine directly. A "Library not loaded … no LC_RPATH's found" error seen through `perl` was this, not a real problem.
-- **`@rpath/` install names for Wine's runtime libraries:** Wine records whatever install name configure sees as the SONAME and dlopens that, so `@rpath/libgnutls…` wouldn't be found from `lib/wine/x86_64-unix`. Use plain names (`libgnutls.30.dylib`), found through `DYLD_FALLBACK_LIBRARY_PATH`, which Schnitzel sets to the engine's `lib`; the WIP scripts already do this.
+- **Plain install names (`libgnutls.30.dylib`, no "/"):** wrong, despite an earlier note here. Wine's configure keeps only what follows the last "/" (see `WINE_CHECK_SONAME` in `aclocal.m4`), so `@rpath/libgnutls.30.dylib` gives the right SONAME and a plain name gives garbage. Fixed; see the plan's M2 note.
 - **The loader memory reserve is not why Sikarugir 11.0_1 fails;** its loader layout matches CrossOver's. The real cause is unknown. Don't spend time on it; the prefix check catches it.
 - **Editing a bash script while it runs** breaks the run, because bash reads scripts as it goes.
 - **Local builds under Rosetta are slow** (GMP alone took several minutes). Prefer CI for M2 and later, and test only small things locally.
