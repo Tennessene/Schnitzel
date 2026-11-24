@@ -75,20 +75,57 @@ Each phase is its own branch (`phase-1-rebrand`, and so on) with small commits.
   - **Engine sources.** Schnitzel's own engine, built from CodeWeavers' CrossOver source (see "Own engine builds"), becomes the default once a build passes testing. Until then, the **Sikarugir engines** built by Gcenx (`Sikarugir-App/Engines`, e.g. `WS12WineSikarugir11.0_1`) are used **only as a temporary testing and comparison reference**, not as Schnitzel's default. The official **WineHQ builds** by Gcenx (`Gcenx/macOS_Wine_builds`) can be installed for comparison but are **never the default**: upstream Wine lacks MSync and the Mac driver hooks D3DMetal needs.
   - If an engine archive contains Apple's D3DMetal, Schnitzel deletes it right after unpacking and uses only the user's own import, so Schnitzel never distributes D3DMetal.
 - Import D3DMetal from the user's mounted Game Porting Toolkit disk image (its `redist/lib` folder) into `Components/D3DMetal/<version>/`. That copy stays on the user's Mac.
-- Install DXVK (Gcenx's DXVK-macOS) and DXMT (`3Shain/dxmt`, builtin build) into the component store.
+- Install DXVK (Gcenx's DXVK-macOS, for now) and DXMT (`3Shain/dxmt`, builtin build) into the component store.
+- **Runtime libraries (temporary reference component).** Engines don't contain the shared libraries Wine loads at runtime (FreeType for fonts, GnuTLS for HTTPS, the Vulkan loader and MoltenVK, SDL2 for controllers, libinotify, and what they depend on). Until "Own engine builds" builds them, Schnitzel takes them from Sikarugir's `Template-1.0.27` release, checked against GitHub's SHA-256. Only those open-source libraries are kept; Sikarugir's launcher, its SDK, Apple's D3DMetal (the template contains it) and everything else in the download are deleted during install. The UI marks this component as a temporary reference.
+- Component sources are generic: one default source per kind (`ComponentSource.defaultSourceIDs`) decides the "Recommended" label and what new Pfannen use; each installed component records its source; release lists are read across several pages, optionally filtered by tag prefix; installed versions are named `<source prefix>-<version>`, so two sources can never clash.
 - Create a Pfanne (Wine prefix, default Windows 10 64-bit), run an `.exe` in it, open C: in Finder, write a log per run.
 - Graphics layer setup per Pfanne as described under Architecture.
 - A minimal working UI (list, create, run, open C:, engine and graphics choice) so each piece can be tested. Phase 2 replaces it with the real design.
-- To verify on first real use, because they can only be checked with the actual downloads: the exact folder layout inside each archive, and whether Sikarugir engines already contain DXMT or MoltenVK. Schnitzel finds the Wine binary by searching the unpacked archive and shows what each component contains, so these show up in testing.
+- Checked with the real downloads (November 2026): `WS12WineSikarugir11.0_1` unpacks to `wswine.bundle/`, contains DXMT and no D3DMetal or MoltenVK, and loads its runtime libraries from outside the engine (hence the libraries component).
 
 ## Own engine builds
 
 Goal: Schnitzel's default engine is Wine compiled from CodeWeavers' CrossOver source drops (`codeweavers.com/crossover/source`), built in the open with GitHub Actions and published as Schnitzel engine releases.
 
-What the source contains (checked with CrossOver 26.3.0, November 2026): `sources/wine` is Wine 11.0 plus CodeWeavers' changes (204 files changed and 17 added compared to WineHQ's Wine 11.0, 39 distinct `CW HACK` markers in 34 files). The main changes are MSync (`server/msync.c`, `ntdll/unix/msync.c`), the Mac driver hooks D3DMetal uses (`winemac.drv/d3dmetal*`), Mac driver and windowing fixes, wined3d using Vulkan for d3d10/11 on macOS, Rosetta and WoW64 fixes, and game-specific workarounds. The drop also contains CodeWeavers' MoltenVK, DXVK and vkd3d sources.
+What the source contains (checked with CrossOver 26.3.0, November 2026): `sources/wine` is Wine 11.0 plus CodeWeavers' changes (204 files changed and 17 added compared to WineHQ's Wine 11.0, 39 distinct `CW HACK` markers in 34 files). The main changes are MSync (`server/msync.c`, `ntdll/unix/msync.c`), the Mac driver hooks D3DMetal uses (`winemac.drv/d3dmetal*`), Mac driver and windowing fixes, wined3d using Vulkan for d3d10/11 on macOS, Rosetta and WoW64 fixes, and game-specific workarounds. The drop also contains the other components CrossOver builds.
+
+Every component in the CrossOver 26.3.0 source drop, compared with the matching upstream release (November 2026):
+
+| Component | Upstream version | Modified by CodeWeavers? | What changed | Use in Schnitzel's builds |
+|---|---|---|---|---|
+| Wine | 11.0 | **Yes, heavily** | See above | CodeWeavers' version |
+| DXVK | 1.10.3 | **Yes** (36 files, about 470 lines added) | MoltenVK workarounds (no direct mapping, A8 format, swizzled textures), d3d9 and d3d11 fixes, extra config options (frame rate limits, vendor/device ID, memory limits, nvapi hack), game-specific fixes | CodeWeavers' 1.10.3, replacing Gcenx's DXVK-macOS. **Never DXVK 2.x**: it needs Vulkan features MoltenVK lacks |
+| MoltenVK | 1.2.10 | **Yes** (44 files, about 1,300 lines added) | Geometry shader support, descriptor and buffer binding fixes, sync changes, extra config options, newer SPIRV-Cross | CodeWeavers' version |
+| vkd3d | 1.18 plus later development changes | **Yes** | A newer development snapshot than the 1.18 release (about 5,200 lines), plus two MoltenVK workarounds (descriptor indexing, tessellation output) | CodeWeavers' version (DirectX 12 over Vulkan; D3DMetal stays the preferred DirectX 12 layer) |
+| GnuTLS | 3.8.3 | **Yes, small** | Keeps the TLS ClientHello extension order stable within a session; an Android build fix | CodeWeavers' version |
+| Nettle | 3.10 | No (git checkout instead of tarball) | None in code | Upstream 3.10 |
+| GMP | 6.3.0 | Build files only | Docs left out of the build | Upstream 6.3.0 |
+| FreeType | 2.13.3 | No (git checkout instead of tarball) | None in code | Upstream 2.13.3 |
+| GLib | 2.78.0 | No | None | Upstream 2.78.0 (needed by GStreamer) |
+| GStreamer | 1.24.4 | No | None | Upstream 1.24.4 (needed by winegstreamer for game videos) |
+| cabextract | 1.9.1 | Build files only | None in code | Not part of the engine (Winetricks helper) |
+| busybox | 1.26.2 | Small | Android build tweaks | Not needed on Mac |
+| Ghostscript | 9.06 | Not compared | Printing to PDF on Linux | Not needed on Mac |
+| makedep | Older copy of Wine's build tool | Differs from Wine 11.0's | Used for CrossOver's own tooling | Use Wine 11.0's own `tools/makedep` |
+| po4a, pyxdg, htmltextview, android/java-iso-tools | 0.30, 0.6, n/a, n/a | n/a | CrossOver's Linux and Android interface and documentation tools | Not needed |
+
+Not in the source drop: **DXMT** (CrossOver ships v0.72 per its changelog; DXMT is open source at `3Shain/dxmt` and is built from there) and **SDL2** and **libinotify** (open source, built from upstream).
+
+What CrossOver.app itself contains (CrossOver 26.3.0.39832, inspected by file names, types and version metadata only):
+- **Built from the source drop:** `wineloader`, `wineserver`, the Wine DLLs in `lib/wine`, vkd3d, and the libraries in `lib64` (FreeType, GnuTLS with Nettle linked in, GMP, GLib, GStreamer, SDL2, libinotify, MoltenVK).
+- **Graphics layers kept in separate folders:** `lib/dxvk` (DXVK), `lib/dxmt` (DXMT, including `nvapi64`/`nvngx` for DLSS), `lib64/apple_gptk` (Apple's D3DMetal 3.0, which CodeWeavers is licensed to ship and Schnitzel is not). CrossOver chooses one per bottle when it starts Wine.
+- **Closed-source CrossOver extras:**
+  - Affect how games run: the `wine` launcher (a Perl script that sets up the environment and graphics layer before starting `wineloader`); `cxcompatdb.so` and `share/crossover/data/cxfixes.xml` (CrossOver's per-game settings database, "automatically enable settings on a per-game basis" in its changelog); `steamurlhelper`; `winewrapper` and `winelib`.
+  - Interface and bottle management only: the CrossOver app, its Python and Sparkle frameworks, the `cx*` tools (`cxbottle`, `cxstart`, `cxmenu`, `cxassoc`, `cxinstallfonts`, `cxwget`, `cxkeepalive`, …), Perl modules, bottle templates and translations.
+  - Stand-ins for Windows and Office helper programs (`ctfmon`, `findfast`, `mosearch`, `qttask`, `pstores`, `imjpmig`, `ddhelp`, `maildoff`, `mdm`, `autorun`, `assocscan`, `extract`, `cxdummy`).
+  - `unrar` (freeware, not open source).
+- **Schnitzel equivalents to build ourselves (open source):** the environment setup the `wine` launcher does (Schnitzel's `WineRuntime`), and a per-game settings database (Schnitzel's Phase 4 recipes). Two variables from the source drop are already used: `CX_APPLEGPTK_LIBD3DSHARED_PATH` (where D3DMetal's library is) and `CX_ACTIVE_GRAPHICS_BACKEND`.
+- **Worth testing:** CrossOver keeps each graphics layer in its own folder instead of copying it into the engine. Wine's `WINEDLLPATH` can point at such a folder, which would be simpler than Schnitzel's engine assemblies; it is still one layer per Pfanne, because it's an environment variable.
 
 Plan:
 - An `engines/` folder in this repository with the build script and the GitHub Actions workflow. Builds run on GitHub's macOS runners, which are free for public repositories.
+- Build CodeWeavers' modified versions wherever they differ from upstream (see the table): Wine, DXVK 1.10.3, MoltenVK, vkd3d and GnuTLS. Use upstream releases for the unmodified ones (FreeType, Nettle, GMP, GLib, GStreamer) and for DXMT, SDL2 and libinotify, which aren't in the drop. Never DXVK 2.x.
+- These builds replace the temporary components: Schnitzel's engine replaces the Sikarugir engine, Schnitzel's library bundle replaces the libraries taken from Sikarugir's Template, and Schnitzel's DXVK build replaces Gcenx's DXVK-macOS.
 - Steps: download a source drop and check its SHA-256 (CodeWeavers publishes no checksums, so the hash of the first download is recorded in the repository and later downloads must match it); install the toolchain (Xcode command line tools, `llvm-mingw` for the Windows-side DLLs, bison, flex and the libraries Wine links against); configure a WoW64 build (`--enable-archs=i386,x86_64`) for x86_64, since Wine on Apple Silicon runs under Rosetta; build; package `bin/`, `lib/` and `share/` into a `.tar.xz` laid out like the other engines; publish it as a GitHub release of this repository with its SHA-256 in the release and in a checksum file.
 - Each release records exactly which source drop, toolchain versions and Schnitzel patches went into it, so any build can be reproduced.
 - Gcenx's public build scripts (`Gcenx/macports-wine`, `Gcenx/macOS_Wine_builds`) are a reference for configure flags and dependencies. They have no license file, so Schnitzel learns from them and credits them but doesn't copy their files.
@@ -99,7 +136,7 @@ What could go wrong:
 - **Build environment.** CrossOver's own build setup isn't in the source drop, so dependency versions, configure flags and the mingw toolchain have to be worked out. GitHub's macOS runners change their Xcode and SDK versions over time and can break builds; pin versions and cache the toolchain.
 - **Build time and limits.** A full Wine build takes well over an hour; caching helps. Jobs are limited to 6 hours.
 - **Missing pieces.** Some CrossOver features may depend on parts not in the drop, or behave differently outside CrossOver (several hacks read `CX_*` variables). Each needs checking.
-- **Dependencies.** FreeType, GnuTLS, SDL, MoltenVK and GStreamer have to be built or bundled, with their licenses included in the package.
+- **Dependencies.** FreeType, GnuTLS (with Nettle and GMP), SDL2, libinotify, MoltenVK, the Vulkan loader, GLib and GStreamer have to be built and bundled, with their licenses included in the package. MoltenVK is built with Xcode, which the runners have but which is a separate build system.
 - **Signing.** Without an Apple Developer ID, builds are ad-hoc signed and unnotarized. Schnitzel installs them itself, and Wine runs under Rosetta, so this is manageable, but it needs testing on a clean Mac.
 - **Licensing.** Wine is LGPL-2.1, so every release must link to the exact source it was built from, including Schnitzel's patches. CodeWeavers' trademarks ("CrossOver") must not be used in Schnitzel's engine names; describe them as "built from CodeWeavers' Wine source".
 - **Compatibility.** A first build may work worse than the Sikarugir engine. Compare the two with the same games before switching the default.
@@ -150,8 +187,8 @@ Show the installed version and the latest available version of each component, w
 | Component | Source | Auto-update? |
 |---|---|---|
 | Wine engine | Schnitzel's own builds from CodeWeavers' source (default once tested). Sikarugir engines as a temporary reference, WineHQ builds for comparison only (GitHub releases) | Yes |
-| DXVK | Gcenx's DXVK-macOS (GitHub releases; last release 2023) | Yes |
-| MoltenVK | KhronosGroup/MoltenVK (GitHub releases) | Yes |
+| DXVK | Schnitzel's build of CodeWeavers' DXVK 1.10.3 (Gcenx's DXVK-macOS until then). Never DXVK 2.x | Yes |
+| MoltenVK | Schnitzel's build of CodeWeavers' MoltenVK (taken from Sikarugir's Template until then) | Yes |
 | DXMT | `3Shain/dxmt` GitHub releases, builtin build (LGPL-2.1 from v0.81, MIT before) | Yes |
 | D3DMetal | Apple Game Porting Toolkit | **No.** Detect the installed version and link to Apple's download page; requires the user's free Apple ID |
 
