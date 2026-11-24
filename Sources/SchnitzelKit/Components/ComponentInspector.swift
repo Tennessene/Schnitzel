@@ -38,7 +38,24 @@ public enum ComponentInspector {
         case .dxvk: return try inspectDXVK(at: folder)
         case .dxmt: return try inspectDXMT(at: folder)
         case .d3dMetal: return try inspectD3DMetal(at: folder)
+        case .libraries: return try inspectLibraries(at: folder)
         }
+    }
+
+    // MARK: Runtime libraries
+
+    static func inspectLibraries(at folder: URL) throws -> Findings {
+        let lib = folder.appending(path: "lib")
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: lib.path)) ?? []).filter { $0.hasSuffix(".dylib") }
+        let missing = RuntimeLibraries.required.filter { !names.contains($0) }
+        guard missing.isEmpty else {
+            throw ComponentError.unrecognizedContents(.libraries, "missing \(missing.joined(separator: ", "))")
+        }
+        let realFiles = names.filter { (try? FileManager.default.destinationOfSymbolicLink(atPath: lib.appending(path: $0).path)) == nil }
+        return Findings(
+            rootPath: "lib", wineBinary: nil, dlls: nil,
+            notes: ["Temporary reference: Schnitzel will build these libraries itself",
+                    "\(realFiles.count) open-source libraries: FreeType, GnuTLS, MoltenVK, Vulkan loader, SDL2 and their dependencies"])
     }
 
     // MARK: Engines

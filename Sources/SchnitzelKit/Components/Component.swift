@@ -24,6 +24,8 @@ public enum ComponentKind: String, CaseIterable, Codable, Sendable {
     case dxvk
     case dxmt
     case d3dMetal
+    /// Shared libraries Wine loads at runtime (FreeType, GnuTLS, Vulkan/MoltenVK, SDL2, …).
+    case libraries
 
     /// Folder name under `Components/`.
     public var folderName: String {
@@ -32,6 +34,7 @@ public enum ComponentKind: String, CaseIterable, Codable, Sendable {
         case .dxvk: return "DXVK"
         case .dxmt: return "DXMT"
         case .d3dMetal: return "D3DMetal"
+        case .libraries: return "Libraries"
         }
     }
 
@@ -41,6 +44,7 @@ public enum ComponentKind: String, CaseIterable, Codable, Sendable {
         case .dxvk: return "DXVK"
         case .dxmt: return "DXMT"
         case .d3dMetal: return "D3DMetal"
+        case .libraries: return "Runtime libraries"
         }
     }
 }
@@ -53,6 +57,9 @@ public struct ComponentManifest: Codable, Equatable, Sendable {
     public var version: String
     /// Where it came from: a download URL or "Imported from …".
     public var source: String
+    /// The `ComponentSource.id` it was downloaded from, or another fixed id for imports
+    /// (`D3DMetalImport.sourceID`). Nil for components installed before this was recorded.
+    public var sourceID: String?
     /// SHA-256 of the downloaded archive, if downloaded.
     public var sha256: String?
     public var installedAt: Date
@@ -65,12 +72,13 @@ public struct ComponentManifest: Codable, Equatable, Sendable {
     /// Human-readable findings, shown in Components (for example "Includes DXMT").
     public var notes: [String]
 
-    public init(kind: ComponentKind, version: String, source: String, sha256: String? = nil,
+    public init(kind: ComponentKind, version: String, source: String, sourceID: String? = nil, sha256: String? = nil,
                 installedAt: Date = .now, rootPath: String = ".", wineBinary: String? = nil,
                 dlls: [String]? = nil, notes: [String] = []) {
         self.kind = kind
         self.version = version
         self.source = source
+        self.sourceID = sourceID
         self.sha256 = sha256
         self.installedAt = installedAt
         self.rootPath = rootPath
@@ -89,6 +97,8 @@ public struct InstalledComponent: Equatable, Hashable, Sendable, Identifiable {
     public var id: String { "\(manifest.kind.rawValue)/\(manifest.version)" }
     public var kind: ComponentKind { manifest.kind }
     public var version: String { manifest.version }
+    /// The source definition it came from, if it is a known download source.
+    public var componentSource: ComponentSource? { manifest.sourceID.flatMap(ComponentSource.source(id:)) }
 
     /// The component's root folder.
     public var root: URL {

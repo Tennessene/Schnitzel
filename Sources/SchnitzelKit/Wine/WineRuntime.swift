@@ -30,6 +30,8 @@ public struct WineRuntime: Sendable {
     public let graphics: ResolvedGraphics
     public let dxvk: InstalledComponent?
     public let overlay: InstalledComponent?
+    /// Shared libraries Wine loads at runtime (temporary reference component for now).
+    public let libraries: InstalledComponent?
 
     /// Resolves a Pfanne's pins against the store and builds the engine assembly if needed.
     public static func prepare(for pfanne: Pfanne, store: ComponentStore) throws -> WineRuntime {
@@ -43,13 +45,14 @@ public struct WineRuntime: Sendable {
             overlay = try store.require(kind, version)
         }
         let dxvk = try graphics.installsDXVK ? pins.dxvk.map { try store.require(.dxvk, $0) } : nil
+        let libraries = try pins.libraries.map { try store.require(.libraries, $0) }
 
         let root = try store.engineRoot(engine: engine, provider: graphics.provider, overlay: overlay)
         let binary = root.appending(path: engine.manifest.wineBinary ?? "bin/wine")
         return WineRuntime(
             pfanne: pfanne, engine: engine, engineRoot: root, wineBinary: binary,
             wineserverBinary: root.appending(path: "bin/wineserver"),
-            graphics: graphics, dxvk: dxvk, overlay: overlay)
+            graphics: graphics, dxvk: dxvk, overlay: overlay, libraries: libraries)
     }
 
     /// The environment for Wine processes in this Pfanne.
@@ -70,12 +73,14 @@ public struct WineRuntime: Sendable {
             "WINEDEBUG": "fixme-all",
             // Wine finds its own libraries relative to its binary; this covers bundled
             // extras such as MoltenVK and D3DMetal's shared library.
-            "DYLD_FALLBACK_LIBRARY_PATH": [
+            "DYLD_FALLBACK_LIBRARY_PATH": ([
                 engineRoot.appending(path: "lib").path,
-                engineRoot.appending(path: "lib/external").path,
-                "/usr/lib"
-            ].joined(separator: ":")
+                engineRoot.appending(path: "lib/external").path
+            ] + [libraries?.root.path].compactMap { $0 } + ["/usr/lib"]).joined(separator: ":")
         ]
+        if let libraries {
+            env.merge(RuntimeLibraries.environment(for: libraries)) { $1 }
+        }
         pfanne.settings.environmentVariables(wineEnv: &env)
         env.merge(extra) { $1 }
         return env

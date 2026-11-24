@@ -43,8 +43,8 @@ import Testing
     @Test func keepsOnlyMatchingStableAssetsNewestFirst() throws {
         let available = try ReleaseCatalog.parse(Self.dxvkReleases, source: .dxvk)
         #expect(available.map(\.version) == [
-            "dxvk-macOS-async-v1.10.3-20230507-repack",
-            "dxvk-macOS-async-v1.10.3-20230402"
+            "dxvk-macos-v1.10.3-20230507-repack",
+            "dxvk-macos-v1.10.3-20230402"
         ])
         #expect(available[0].sha256 == "9909b486aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         #expect(available[1].sha256 == nil)
@@ -57,18 +57,66 @@ import Testing
         #expect(ComponentSource.wineHQEngines.matches(assetName: "wine-staging-11.21-osx64.tar.xz"))
         #expect(ComponentSource.dxmt.matches(assetName: "dxmt-v0.80-builtin.tar.gz"))
         #expect(ComponentSource.sikarugirEngines.version(fromAssetName: "WS12WineSikarugir11.0_1.tar.xz")
-                == "WS12WineSikarugir11.0_1")
+                == "sikarugir-engine-WS12WineSikarugir11.0_1")
+        #expect(ComponentSource.wineHQEngines.version(fromAssetName: "wine-staging-11.21-osx64.tar.xz")
+                == "winehq-staging-11.21")
+        #expect(ComponentSource.dxmt.version(fromAssetName: "dxmt-v0.80-builtin.tar.gz") == "dxmt-v0.80")
+        #expect(ComponentSource.sikarugirTemplateLibraries.version(fromAssetName: "Template-1.0.27.tar.xz")
+                == "sikarugir-template-1.0.27")
+        #expect(!ComponentSource.sikarugirTemplateLibraries.matches(assetName: "Template-1.0.tar.xz"))
+    }
+
+    @Test func versionNamesCannotClashBetweenSources() {
+        // Versions are "<prefix>-<core>". If no prefix equals another or starts with
+        // another followed by "-", two sources can never produce the same name.
+        let prefixes = ComponentSource.all.map(\.versionPrefix) + [D3DMetalImport.versionPrefix]
+        #expect(Set(prefixes).count == prefixes.count)
+        for prefix in prefixes {
+            for other in prefixes where other != prefix {
+                #expect(!prefix.hasPrefix(other + "-"), "\(prefix) starts with \(other)-")
+            }
+        }
+        #expect(Set(ComponentSource.all.map(\.id)).count == ComponentSource.all.count)
+    }
+
+    @Test func oneDefaultSourcePerKind() {
+        #expect(ComponentSource.defaultSource(for: .engine) == .sikarugirEngines)
+        #expect(ComponentSource.defaultSource(for: .libraries) == .sikarugirTemplateLibraries)
+        #expect(ComponentSource.defaultSource(for: .d3dMetal) == nil) // Imported, never downloaded.
+        #expect(!ComponentSource.wineHQEngines.isDefault)
+        for kind in ComponentKind.allCases {
+            #expect(ComponentSource.sources(for: kind).filter(\.isDefault).count <= 1)
+        }
+    }
+
+    @Test func followsGitHubPagination() {
+        let header = #"<https://api.github.com/repositories/1/releases?per_page=100&page=2>; rel="next", <https://api.github.com/repositories/1/releases?per_page=100&page=4>; rel="last""#
+        #expect(ReleaseCatalog.nextPage(fromLinkHeader: header)?.absoluteString
+                == "https://api.github.com/repositories/1/releases?per_page=100&page=2")
+        #expect(ReleaseCatalog.nextPage(fromLinkHeader: #"<https://x/?page=1>; rel="prev""#) == nil)
+    }
+
+    @Test func tagPrefixFiltersReleases() throws {
+        var source = ComponentSource.dxvk
+        source.tagPrefix = "v1.10.3-20230402"
+        let available = try ReleaseCatalog.parse(Self.dxvkReleases, source: source)
+        #expect(available.map(\.version) == ["dxvk-macos-v1.10.3-20230402"])
     }
 
     @Test func supportedListDecidesOrderAndRecommendation() throws {
         let available = try ReleaseCatalog.parse(Self.dxvkReleases, source: .dxvk)
-        let ordered = ReleaseCatalog.order(available, supported: ["dxvk-macOS-async-v1.10.3-20230402", "missing"])
-        #expect(ordered.map(\.version) == ["dxvk-macOS-async-v1.10.3-20230402", "dxvk-macOS-async-v1.10.3-20230507-repack"])
+        let ordered = ReleaseCatalog.order(available, supported: ["dxvk-macOS-async-v1.10.3-20230402", "missing"],
+                                           isDefaultSource: true)
+        #expect(ordered.map(\.version) == ["dxvk-macos-v1.10.3-20230402", "dxvk-macos-v1.10.3-20230507-repack"])
         #expect(ordered[0].isRecommended && ordered[0].isSupported)
         #expect(!ordered[1].isRecommended && !ordered[1].isSupported)
 
-        let unlisted = ReleaseCatalog.order(available, supported: nil)
-        #expect(unlisted[0].version == "dxvk-macOS-async-v1.10.3-20230507-repack" && unlisted[0].isRecommended)
+        let unlisted = ReleaseCatalog.order(available, supported: nil, isDefaultSource: true)
+        #expect(unlisted[0].version == "dxvk-macos-v1.10.3-20230507-repack" && unlisted[0].isRecommended)
+
+        // Only the default source of a kind gets a "Recommended" version.
+        let notDefault = ReleaseCatalog.order(available, supported: nil, isDefaultSource: false)
+        #expect(notDefault.allSatisfy { !$0.isRecommended })
     }
 
     @Test func rejectsMalformedDigests() {

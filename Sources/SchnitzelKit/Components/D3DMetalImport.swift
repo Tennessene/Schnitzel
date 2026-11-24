@@ -26,6 +26,10 @@ import Foundation
 public enum D3DMetalImport {
     /// Apple's download page for the Game Porting Toolkit.
     public static let downloadPage = URL(string: "https://developer.apple.com/games/game-porting-toolkit/")!
+    /// `ComponentManifest.sourceID` of imported D3DMetal versions.
+    public static let sourceID = "game-porting-toolkit"
+    /// Installed version names are `gptk-<version>`, like downloads are `<source prefix>-<version>`.
+    static let versionPrefix = "gptk"
 
     /// Mounted disk images that contain D3DMetal, for example
     /// `/Volumes/Evaluation environment for Windows games 3.0`.
@@ -46,13 +50,13 @@ public enum D3DMetalImport {
             throw ComponentError.unrecognizedContents(
                 .d3dMetal, "choose the opened Game Porting Toolkit disk image, or its redist folder")
         }
-        let version = ComponentInspector.d3dMetalVersion(libFolder: lib) ?? versionFromName(folder.lastPathComponent)
+        let version = "\(versionPrefix)-" + (ComponentInspector.d3dMetalVersion(libFolder: lib) ?? versionFromName(folder.lastPathComponent))
         if let existing = store.component(.d3dMetal, version) {
             return existing
         }
         return try await store.importFolder(
             .d3dMetal, version: version, from: lib,
-            sourceDescription: "Imported from \(folder.path)")
+            sourceDescription: "Imported from \(folder.path)", sourceID: sourceID)
     }
 
     /// "Evaluation environment for Windows games 3.0" → "3.0"; anything else → a dated name.

@@ -51,7 +51,7 @@ public struct ComponentDownloader: Sendable {
         progress(.installing)
         var installed = try await store.install(
             component.kind, version: component.version, archive: archive,
-            source: component.downloadURL.absoluteString, sha256: actual)
+            source: component.downloadURL.absoluteString, sourceID: component.source.id, sha256: actual)
         if component.sha256 == nil {
             installed.manifest.notes.append("GitHub published no checksum for this file, so it couldn't be verified")
             let encoder = PropertyListEncoder()

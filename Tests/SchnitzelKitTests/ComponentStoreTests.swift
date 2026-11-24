@@ -222,7 +222,8 @@ struct Scratch {
 
         let store = ComponentStore(root: scratch.url.appending(path: "Components"))
         let first = try await D3DMetalImport.importD3DMetal(from: toolkits[0], store: store)
-        #expect(first.version == "3.0") // No Info.plist in the fake framework, so from the name.
+        #expect(first.version == "gptk-3.0") // No Info.plist in the fake framework, so from the name.
+        #expect(first.manifest.sourceID == D3DMetalImport.sourceID)
         let again = try await D3DMetalImport.importD3DMetal(from: toolkits[0], store: store)
         #expect(again.id == first.id)
         #expect(store.installed(.d3dMetal).count == 1)
@@ -234,6 +235,116 @@ struct Scratch {
         let store = ComponentStore(root: scratch.url.appending(path: "Components"))
         await #expect(throws: ComponentError.self) {
             try await D3DMetalImport.importD3DMetal(from: folder, store: store)
+        }
+    }
+}
+
+@Suite struct RuntimeLibrariesTests {
+    /// A fake Sikarugir Template with libraries Wine needs and things that must be dropped.
+    func fakeTemplate(_ scratch: Scratch, missing: String? = nil) async throws -> URL {
+        let frameworks = "Template-1.0.27.app/Contents/Frameworks"
+        var files: [String: String] = [
+            "\(frameworks)/libfreetype.6.dylib": "freetype",
+            "\(frameworks)/libgnutls.30.dylib": "gnutls",
+            "\(frameworks)/libnettle.8.11.dylib": "nettle",
+            "\(frameworks)/libvulkan.1.4.363.dylib": "vulkan loader",
+            "\(frameworks)/libMVK.dylib": "moltenvk",
+            "\(frameworks)/libSDL2-2.0.0.dylib": "sdl2",
+            "\(frameworks)/libinotify.0.dylib": "inotify",
+            // Not needed by Wine, or not open source: must not be kept.
+            "\(frameworks)/libgnutls-openssl.27.dylib": "no",
+            "\(frameworks)/libavcodec.61.dylib": "no",
+            "\(frameworks)/libdxcompiler.dylib": "no",
+            "\(frameworks)/SikarugirSdk.framework/SikarugirSdk": "closed",
+            "\(frameworks)/GStreamer.framework/Versions/1.0/lib/libz.1.dylib": "inside gstreamer",
+            "Template-1.0.27.app/Contents/MacOS/wineskinlauncher": "closed",
+            "Template-1.0.27.app/Contents/SharedSupport/renderer/d3dmetal/external/libd3dshared.dylib": "apple",
+            "Template-1.0.27.app/Contents/Resources/vulkan/icd.d/MoltenVK_icd.json":
+                #"{"file_format_version": "1.0.0", "ICD": {"library_path": "../../../Frameworks/libMVK.dylib", "api_version": "1.4.0"}}"#
+        ]
+        if let missing { files["\(frameworks)/\(missing)"] = nil }
+        let root = try scratch.tree("template", files)
+        let fm = FileManager.default
+        let fw = root.appending(path: frameworks)
+        try fm.createSymbolicLink(atPath: fw.appending(path: "libvulkan.1.dylib").path, withDestinationPath: "libvulkan.1.4.363.dylib")
+        try fm.createSymbolicLink(atPath: fw.appending(path: "libMoltenVK.dylib").path, withDestinationPath: "libvulkan.1.dylib")
+        try fm.createSymbolicLink(atPath: fw.appending(path: "libnettle.8.dylib").path, withDestinationPath: "libnettle.8.11.dylib")
+        try fm.createSymbolicLink(atPath: fw.appending(path: "libsneaky.dylib").path, withDestinationPath: "../MacOS/wineskinlauncher")
+        return try await scratch.archive(root, name: "Template-1.0.27.tar.gz")
+    }
+
+    @Test func keepsOnlyTheOpenSourceLibrariesWineNeeds() async throws {
+        let scratch = try Scratch(); defer { scratch.remove() }
+        let store = ComponentStore(root: scratch.url.appending(path: "Components"))
+        let libraries = try await store.install(
+            .libraries, version: "sikarugir-template-1.0.27", archive: try await fakeTemplate(scratch),
+            source: "test", sourceID: ComponentSource.sikarugirTemplateLibraries.id)
+
+        let kept = Set(try FileManager.default.contentsOfDirectory(atPath: libraries.root.path))
+        #expect(kept == [
+            "libfreetype.6.dylib", "libgnutls.30.dylib", "libnettle.8.11.dylib", "libnettle.8.dylib",
+            "libvulkan.1.4.363.dylib", "libvulkan.1.dylib", "libMoltenVK.dylib", "libMVK.dylib",
+            "libSDL2-2.0.0.dylib", "libinotify.0.dylib", "vulkan"
+        ])
+        // Nothing else from the download survives.
+        let everything = (FileManager.default.enumerator(atPath: libraries.folder.path)?.allObjects as? [String]) ?? []
+        #expect(!everything.contains { $0.contains("Template-1.0.27.app") || $0.contains("d3dshared") || $0.contains("Sikarugir") })
+        #expect(libraries.manifest.notes.first?.contains("Temporary") == true)
+
+        // The Vulkan driver file points at MoltenVK next to it.
+        let icd = libraries.root.appending(path: "vulkan/icd.d/MoltenVK_icd.json")
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: icd)) as? [String: Any]
+        let entry = json?["ICD"] as? [String: Any]
+        #expect(entry?["library_path"] as? String == "../../libMVK.dylib")
+        #expect(entry?["api_version"] as? String == "1.4.0")
+        #expect(scratch.contents(icd.deletingLastPathComponent().appending(path: "../../libMVK.dylib").standardizedFileURL) == "moltenvk")
+    }
+
+    @Test func refusesATemplateWithoutARequiredLibrary() async throws {
+        let scratch = try Scratch(); defer { scratch.remove() }
+        let store = ComponentStore(root: scratch.url.appending(path: "Components"))
+        let archive = try await fakeTemplate(scratch, missing: "libSDL2-2.0.0.dylib")
+        await #expect(throws: ComponentError.self) {
+            try await store.install(.libraries, version: "sikarugir-template-1.0.27", archive: archive, source: "test")
+        }
+        #expect(store.installed(.libraries).isEmpty)
+    }
+
+    @Test func wineFindsTheLibraries() async throws {
+        let scratch = try Scratch(); defer { scratch.remove() }
+        let store = ComponentStore(root: scratch.url.appending(path: "Components"))
+        _ = try await store.install(
+            .engine, version: "E1",
+            archive: try await scratch.archive(try scratch.tree("e", ComponentStoreTests.sikarugirStyleEngine), name: "e.tar.gz"),
+            source: "test")
+        let libraries = try await store.install(
+            .libraries, version: "L1", archive: try await fakeTemplate(scratch), source: "test")
+        var pfanne = try PfanneStore(root: scratch.url.appending(path: "Pfannen")).create(name: "Test", engine: "E1")
+        pfanne.settings.pins.libraries = "L1"
+
+        let env = try WineRuntime.prepare(for: pfanne, store: store).environment()
+        #expect(env["DYLD_FALLBACK_LIBRARY_PATH"]?.contains(libraries.root.path) == true)
+        #expect(env["VK_DRIVER_FILES"]?.hasSuffix("vulkan/icd.d/MoltenVK_icd.json") == true)
+        #expect(env["WINEDLLOVERRIDES"] == nil)
+    }
+}
+
+/// Runs only with SCHNITZEL_TEMPLATE_ARCHIVE=/path/to/Template-1.0.27.tar.xz.
+@Suite struct RealTemplateTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["SCHNITZEL_TEMPLATE_ARCHIVE"] != nil))
+    func extractsFromTheRealTemplate() async throws {
+        let archive = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SCHNITZEL_TEMPLATE_ARCHIVE"]!)
+        let scratch = try Scratch(); defer { scratch.remove() }
+        let store = ComponentStore(root: scratch.url.appending(path: "Components"))
+        let libraries = try await store.install(.libraries, version: "sikarugir-template-1.0.27", archive: archive, source: "test")
+        let names = try FileManager.default.contentsOfDirectory(atPath: libraries.root.path).sorted()
+        print("Kept: \(names.joined(separator: " "))")
+        for required in RuntimeLibraries.required {
+            #expect(FileManager.default.fileExists(atPath: libraries.root.appending(path: required).resolvingSymlinksInPath().path))
+        }
+        let everything = (FileManager.default.enumerator(atPath: libraries.folder.path)?.allObjects as? [String]) ?? []
+        for fragment in RuntimeLibraries.forbiddenFragments {
+            #expect(!everything.contains { $0.contains(fragment) }, "\(fragment) was kept")
         }
     }
 }

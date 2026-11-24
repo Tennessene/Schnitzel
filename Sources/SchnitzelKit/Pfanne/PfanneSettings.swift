@@ -71,12 +71,15 @@ public struct ComponentPins: Codable, Equatable, Hashable, Sendable {
     public var dxvk: String?
     public var dxmt: String?
     public var d3dMetal: String?
+    public var libraries: String?
 
-    public init(engine: String? = nil, dxvk: String? = nil, dxmt: String? = nil, d3dMetal: String? = nil) {
+    public init(engine: String? = nil, dxvk: String? = nil, dxmt: String? = nil, d3dMetal: String? = nil,
+                libraries: String? = nil) {
         self.engine = engine
         self.dxvk = dxvk
         self.dxmt = dxmt
         self.d3dMetal = d3dMetal
+        self.libraries = libraries
     }
 
     public func version(of kind: ComponentKind) -> String? {
@@ -85,6 +88,7 @@ public struct ComponentPins: Codable, Equatable, Hashable, Sendable {
         case .dxvk: return dxvk
         case .dxmt: return dxmt
         case .d3dMetal: return d3dMetal
+        case .libraries: return libraries
         }
     }
 
@@ -94,6 +98,7 @@ public struct ComponentPins: Codable, Equatable, Hashable, Sendable {
         case .dxvk: dxvk = version
         case .dxmt: dxmt = version
         case .d3dMetal: d3dMetal = version
+        case .libraries: libraries = version
         }
     }
 }

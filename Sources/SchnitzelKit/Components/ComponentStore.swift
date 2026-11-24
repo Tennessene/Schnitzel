@@ -84,8 +84,8 @@ public struct ComponentStore: Sendable {
 
     /// Unpacks `archive` as version `version` of `kind`.
     public func install(_ kind: ComponentKind, version: String, archive: URL,
-                        source: String, sha256: String? = nil) async throws -> InstalledComponent {
-        try await install(kind, version: version, source: source, sha256: sha256) { staging in
+                        source: String, sourceID: String? = nil, sha256: String? = nil) async throws -> InstalledComponent {
+        try await install(kind, version: version, source: source, sourceID: sourceID, sha256: sha256) { staging in
             try await Command.untar(archive, into: staging)
         }
     }
@@ -93,13 +93,13 @@ public struct ComponentStore: Sendable {
     /// Copies an existing folder (for example the Game Porting Toolkit's `redist/lib`) in
     /// as version `version` of `kind`.
     public func importFolder(_ kind: ComponentKind, version: String, from source: URL,
-                             sourceDescription: String) async throws -> InstalledComponent {
-        try await install(kind, version: version, source: sourceDescription, sha256: nil) { staging in
+                             sourceDescription: String, sourceID: String? = nil) async throws -> InstalledComponent {
+        try await install(kind, version: version, source: sourceDescription, sourceID: sourceID, sha256: nil) { staging in
             try FileManager.default.copyItem(at: source, to: staging.appending(path: source.lastPathComponent))
         }
     }
 
-    private func install(_ kind: ComponentKind, version: String, source: String, sha256: String?,
+    private func install(_ kind: ComponentKind, version: String, source: String, sourceID: String?, sha256: String?,
                          fill: (URL) async throws -> Void) async throws -> InstalledComponent {
         try Self.validate(versionName: version)
         let destination = folder(for: kind).appending(path: version, directoryHint: .isDirectory)
@@ -111,6 +111,9 @@ public struct ComponentStore: Sendable {
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         do {
             try await fill(staging)
+            if kind == .libraries {
+                try RuntimeLibraries.extract(in: staging)
+            }
             var findings = try ComponentInspector.inspect(kind, at: staging)
             if kind == .engine {
                 let engineRoot = findings.rootPath == "." ? staging : staging.appending(path: findings.rootPath)
@@ -121,7 +124,7 @@ public struct ComponentStore: Sendable {
             try await Command.removeQuarantine(staging)
 
             let manifest = ComponentManifest(
-                kind: kind, version: version, source: source, sha256: sha256, installedAt: .now,
+                kind: kind, version: version, source: source, sourceID: sourceID, sha256: sha256, installedAt: .now,
                 rootPath: findings.rootPath, wineBinary: findings.wineBinary, dlls: findings.dlls,
                 notes: findings.notes)
             let encoder = PropertyListEncoder()
@@ -225,7 +228,7 @@ public struct ComponentStore: Sendable {
             return name.hasSuffix("+\(BuiltinProvider.dxmt.rawValue)-\(version)")
         case .d3dMetal:
             return name.hasSuffix("+\(BuiltinProvider.d3dMetal.rawValue)-\(version)")
-        case .dxvk:
+        case .dxvk, .libraries:
             return false
         }
     }
