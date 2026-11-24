@@ -28,14 +28,16 @@ export LDFLAGS="$LDFLAGS -L$prefix/lib"
 configure_common=(--prefix="$prefix" --host=x86_64-apple-darwin --build=x86_64-apple-darwin)
 
 # Install names (set at the end, once everything is built: during the build the libraries
-# keep their absolute install names, so configure's test programs can load them). Wine dlopens these libraries by the name configure records, so each one's
-# install name is its plain file name (libgnutls.30.dylib). Wine then finds it through
-# DYLD_FALLBACK_LIBRARY_PATH, which Schnitzel points at the engine's lib folder. Links
-# between the libraries use @loader_path, so they find each other in the same folder.
+# keep their absolute install names, so configure's test programs can load them). Each one
+# becomes @rpath/<file name>. Wine's configure records only the part after the last "/"
+# (libgnutls.30.dylib) and dlopens that name, which dyld finds through
+# DYLD_FALLBACK_LIBRARY_PATH (Schnitzel points it at the engine's lib folder). A plain name
+# without "/" doesn't work: configure then records the whole otool line. Links between the
+# libraries use @loader_path, so they find each other in the same folder.
 fix_install_name() {
     local library="$1" name dependency
     name="$(basename "$library")"
-    install_name_tool -id "$name" "$library"
+    install_name_tool -id "@rpath/$name" "$library"
     while read -r dependency; do
         [[ -f "$prefix/lib/$(basename "$dependency")" ]] || continue
         install_name_tool -change "$dependency" "@loader_path/$(basename "$dependency")" "$library"

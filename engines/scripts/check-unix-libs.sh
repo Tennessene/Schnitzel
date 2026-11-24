@@ -7,7 +7,7 @@
 # Usage: engines/scripts/check-unix-libs.sh DEPS_PREFIX
 #
 # Every library Wine loads by name must exist, be x86_64 only, target macOS 14 or older,
-# carry its plain file name as install name (Wine dlopens it by that name), and link only to
+# carry @rpath/<file name> as install name (Wine records the file name and dlopens it), and link only to
 # system libraries or, through @loader_path, to each other.
 
 set -euo pipefail
@@ -29,7 +29,7 @@ for name in "${required[@]}"; do
     [[ -n "$minos" && "${minos%%.*}" -le 14 ]] || fail "$name requires macOS $minos (must be 14 or older)"
 
     id="$(otool -D "$library" | tail -1)"
-    [[ "$id" == "$name" ]] || fail "$name has install name $id (expected $name)"
+    [[ "$id" == "@rpath/$name" ]] || fail "$name has install name $id (expected @rpath/$name)"
 
     while read -r dependency; do
         case "$dependency" in

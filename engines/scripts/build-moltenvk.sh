@@ -60,7 +60,8 @@ built="$work/moltenvk/Package/Release/MoltenVK/dynamic/dylib/macOS/libMoltenVK.d
 [[ -f "$built" ]] || { echo "error: libMoltenVK.dylib wasn't built" >&2; exit 1; }
 
 lipo "$built" -thin x86_64 -output "$prefix/lib/libMoltenVK.dylib" 2>/dev/null || cp "$built" "$prefix/lib/libMoltenVK.dylib"
-install_name_tool -id "libMoltenVK.dylib" "$prefix/lib/libMoltenVK.dylib"  # Wine dlopens it by this name.
+# Wine's configure records the file name after the last "/" and dlopens libMoltenVK.dylib.
+install_name_tool -id "@rpath/libMoltenVK.dylib" "$prefix/lib/libMoltenVK.dylib"
 codesign --force --sign - "$prefix/lib/libMoltenVK.dylib"  # install_name_tool breaks the signature.
 cp "$work/moltenvk/LICENSE" "$prefix/licenses/MoltenVK-LICENSE"
 cp "$work/spirv-cross-codeweavers/LICENSE" "$prefix/licenses/SPIRV-Cross-LICENSE"

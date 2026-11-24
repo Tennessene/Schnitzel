@@ -98,6 +98,11 @@ grep -q '^#define SONAME_LIBVULKAN "libMoltenVK.dylib"' "$config_h" \
 # The Windows side must be built for both architectures (WoW64).
 grep -q "^PE_ARCHS = .*i386" "$work/build/Makefile" && grep -q "^PE_ARCHS = .*x86_64" "$work/build/Makefile" \
     || { echo "error: configure didn't enable both i386 and x86_64 PE builds: $(grep "^PE_ARCHS" "$work/build/Makefile")" >&2; missing=1; }
+# Every recorded library name must be a plain file name: Wine dlopens exactly this string.
+if grep -E '^#define SONAME_' "$config_h" | grep -vE '^#define SONAME_[A-Z0-9_]+ "[A-Za-z0-9._+-]+\.dylib"$'; then
+    echo "error: configure recorded library names that aren't plain file names (above)" >&2
+    missing=1
+fi
 [[ $missing == 0 ]] || { grep -iE "won't be supported|not found" "$work/configure.log" >&2 || true; exit 1; }
 
 step "Build (this is the long part)"
