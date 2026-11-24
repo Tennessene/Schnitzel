@@ -71,6 +71,8 @@ public struct ComponentManifest: Codable, Equatable, Sendable {
     public var dlls: [String]?
     /// Human-readable findings, shown in Components (for example "Includes DXMT").
     public var notes: [String]
+    /// The original file name, if it was installed with "Install from file…".
+    public var installedFromFile: String? = nil
 
     public init(kind: ComponentKind, version: String, source: String, sourceID: String? = nil, sha256: String? = nil,
                 installedAt: Date = .now, rootPath: String = ".", wineBinary: String? = nil,

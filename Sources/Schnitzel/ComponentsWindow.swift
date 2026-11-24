@@ -51,13 +51,28 @@ private struct ComponentKindView: View {
 
     var body: some View {
         Form {
-            Section("Installed") {
+            Section {
                 let installed = model.installed(kind)
                 if installed.isEmpty {
                     Text("Nothing installed yet.").foregroundStyle(.secondary)
                 }
                 ForEach(installed) { component in
                     InstalledRow(component: component)
+                }
+            } header: {
+                HStack {
+                    Text("Installed")
+                    Spacer()
+                    if kind != .d3dMetal {
+                        if let local = model.localInstall, local.kind == kind {
+                            ProgressView().controlSize(.small)
+                            Text(local.status).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Button("Install from File…") { chooseArchive() }
+                            .buttonStyle(.borderless)
+                            .disabled(model.localInstall != nil)
+                            .help("Install an archive you downloaded yourself, for example from a draft release. A SHA256SUMS file next to it is checked automatically.")
+                    }
                 }
             }
 
@@ -70,6 +85,29 @@ private struct ComponentKindView: View {
             }
         }
         .formStyle(.grouped)
+        .confirmationDialog(
+            "Install \(model.pendingUnverified?.fileName ?? "") without a checksum file?",
+            isPresented: Binding(get: { model.pendingUnverified?.kind == kind },
+                                 set: { if !$0 { model.pendingUnverified = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Install") { Task { await model.confirmPendingUnverified() } }
+            Button("Cancel", role: .cancel) { model.pendingUnverified = nil }
+        } message: {
+            Text("There's no SHA256SUMS file next to it, so Schnitzel can't check it. Install it only if this SHA-256 matches the one on the release page:\n\n\(model.pendingUnverified?.sha256 ?? "")")
+        }
+    }
+
+    private func chooseArchive() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.archive, .gzip, .data]
+        panel.prompt = "Install"
+        panel.message = "Choose a \(kind.displayName) archive, for example schnitzel-engine-26.3.0-1.tar.xz. Keep its original file name."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task { await model.installFromFile(url, kind: kind) }
     }
 }
 
@@ -125,9 +163,8 @@ private struct AvailableSection: View {
             if model.isLoadingCatalog(source) {
                 ProgressView().controlSize(.small)
             }
-            let installedVersions = Set(model.installed(source.kind).map(\.version))
             ForEach(model.available[source.id] ?? []) { component in
-                AvailableRow(component: component, isInstalled: installedVersions.contains(component.version))
+                AvailableRow(component: component, match: model.match(component))
             }
         } header: {
             HStack {
@@ -150,7 +187,7 @@ private struct AvailableSection: View {
 private struct AvailableRow: View {
     @Environment(AppModel.self) private var model
     let component: AvailableComponent
-    let isInstalled: Bool
+    let match: ComponentMatch
 
     var body: some View {
         HStack {
@@ -183,8 +220,12 @@ private struct AvailableRow: View {
                 case .installing:
                     Text("Installing…").foregroundStyle(.secondary)
                 }
-            } else if isInstalled {
+            } else if match == .sameFile {
                 Text("Installed").foregroundStyle(.secondary)
+            } else if match == .differentFile {
+                Text("A different file is installed under this name")
+                    .font(.caption).foregroundStyle(.red)
+                    .help("The installed version's SHA-256 differs from this download. Schnitzel never replaces it on its own.")
             } else {
                 Button("Download") { Task { await model.download(component) } }
             }

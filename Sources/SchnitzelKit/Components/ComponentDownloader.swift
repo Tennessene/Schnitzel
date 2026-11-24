@@ -54,9 +54,7 @@ public struct ComponentDownloader: Sendable {
             source: component.downloadURL.absoluteString, sourceID: component.source.id, sha256: actual)
         if component.sha256 == nil {
             installed.manifest.notes.append("GitHub published no checksum for this file, so it couldn't be verified")
-            let encoder = PropertyListEncoder()
-            encoder.outputFormat = .xml
-            try encoder.encode(installed.manifest).write(to: installed.folder.appending(path: ComponentStore.manifestName))
+            try store.saveManifest(of: installed)
         }
         return installed
     }

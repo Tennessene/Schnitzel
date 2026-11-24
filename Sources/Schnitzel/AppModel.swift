@@ -35,6 +35,10 @@ final class AppModel {
     private(set) var catalogErrors: [String: String] = [:]
     private(set) var loadingCatalogs: Set<String> = []
     private(set) var downloads: [String: ComponentDownloader.Progress] = [:]
+    /// The kind an "Install from file…" is running for, with a short status.
+    private(set) var localInstall: (kind: ComponentKind, status: String)?
+    /// An archive without a SHA256SUMS file next to it, waiting for the user to confirm its SHA-256.
+    var pendingUnverified: LocalArchive?
 
     /// Pfannen being created or updated, with a short status.
     private(set) var busy: [Pfanne.ID: String] = [:]
@@ -113,8 +117,17 @@ final class AppModel {
         loadingCatalogs.insert(source.id)
         defer { loadingCatalogs.remove(source.id) }
         do {
-            available[source.id] = try await ReleaseCatalog().available(from: source)
+            let list = try await ReleaseCatalog().available(from: source)
+            available[source.id] = list
             catalogErrors[source.id] = nil
+            // A version installed from a file that has since been published (same SHA-256)
+            // now counts as that download; its name and the Pfannen's pins don't change.
+            var changed = false
+            for component in list {
+                // Best effort: if the note can't be written, the component still works as is.
+                if (try? componentStore.recordPublished(component)) != nil { changed = true }
+            }
+            if changed { reload() }
         } catch {
             catalogErrors[source.id] = error.localizedDescription
         }
@@ -143,6 +156,48 @@ final class AppModel {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// How a downloadable version relates to what's installed under its name.
+    func match(_ component: AvailableComponent) -> ComponentMatch {
+        ComponentMatch.match(component, installed: installed(component.kind).first { $0.version == component.version })
+    }
+
+    /// "Install from file…": checks the archive, then installs it like a download. An
+    /// archive without a SHA256SUMS file waits in `pendingUnverified` for confirmation.
+    func installFromFile(_ url: URL, kind: ComponentKind) async {
+        guard localInstall == nil else { return }
+        localInstall = (kind, "Checking \(url.lastPathComponent)…")
+        defer { localInstall = nil }
+        do {
+            let archive = try await Task.detached { try LocalArchive.inspect(url, kind: kind) }.value
+            if archive.checksum == .unverified {
+                pendingUnverified = archive
+                return
+            }
+            try await install(archive, confirmedUnverified: false)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Installs the archive in `pendingUnverified` after the user confirmed its SHA-256.
+    func confirmPendingUnverified() async {
+        guard let archive = pendingUnverified, localInstall == nil else { return }
+        pendingUnverified = nil
+        localInstall = (archive.kind, "Installing \(archive.fileName)…")
+        defer { localInstall = nil }
+        do {
+            try await install(archive, confirmedUnverified: true)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func install(_ archive: LocalArchive, confirmedUnverified: Bool) async throws {
+        localInstall = (archive.kind, "Installing \(archive.fileName)…")
+        _ = try await componentStore.installLocal(archive, confirmedUnverified: confirmedUnverified)
+        reload()
     }
 
     func importD3DMetal(from folder: URL) async {
