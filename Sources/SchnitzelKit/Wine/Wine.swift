@@ -71,7 +71,7 @@ public enum Wine {
             environment: environment)
         for await event in stream {
             switch event {
-            case .message(let line), .error(let line):
+            case .message(let line):
                 output += line + "\n"
             case .terminated(let code):
                 status = code

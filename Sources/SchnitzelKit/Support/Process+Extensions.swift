@@ -17,12 +17,14 @@
 //
 //  Modified for Schnitzel, November 2026 (GPL-3.0-or-later):
 //  copied from Whisky commit fd5480a. Changes:
+//  - Output goes straight to the log file instead of through pipes. Wine starts
+//    background processes (wineserver, winedevice, explorer) that inherit the
+//    process's output and keep it open long after the process itself exits, so
+//    waiting for a pipe to reach end-of-file could hang forever. A file never blocks.
+//  - The stream reports `.started`, every line of output once the process has exited,
+//    and `.terminated`. Output and errors are combined, in the order they were written.
 //  - Swift 6 strict concurrency: `ProcessOutput` is Sendable and carries the pid and
 //    exit status instead of the Process object.
-//  - The pipe readability handlers are removed at end of file. Whisky's handlers kept
-//    firing with empty data after the process exited, which wasted CPU.
-//  - Output is split into lines before it is yielded, instead of yielding raw chunks.
-//  - Remaining output is flushed into the stream and the log before termination.
 //  - Logging goes to `Logger.schnitzelKit`.
 //
 
@@ -31,148 +33,134 @@ import os.log
 
 public enum ProcessOutput: Hashable, Sendable {
     case started(pid: Int32)
+    /// One line of output (standard output and standard error combined).
     case message(String)
-    case error(String)
     case terminated(status: Int32)
 }
 
 public extension Process {
-    /// Runs the process and returns a stream of its output, line by line.
+    /// Runs the process and returns a stream of events.
     ///
-    /// Everything the process prints is also written to `fileHandle` when given.
+    /// Output is written to `fileHandle` (a log file). Without one, a temporary file is
+    /// used and deleted afterwards. The output's lines are yielded after the process
+    /// exits; output that background processes write later stays in the log only.
     /// Cancelling the stream terminates the process.
     func runStream(name: String, fileHandle: FileHandle?) throws -> AsyncStream<ProcessOutput> {
-        let stream = makeStream(name: name, fileHandle: fileHandle)
-        self.logProcessInfo(name: name)
-        fileHandle?.writeInfo(for: self)
-        try run()
-        return stream
-    }
+        let temporary: URL?
+        let log: FileHandle
+        if let fileHandle {
+            temporary = nil
+            log = fileHandle
+        } else {
+            let url = FileManager.default.temporaryDirectory
+                .appending(path: "schnitzel-process-\(UUID().uuidString).log")
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            temporary = url
+            log = try FileHandle(forWritingTo: url)
+        }
 
-    private func makeStream(name: String, fileHandle: FileHandle?) -> AsyncStream<ProcessOutput> {
-        let pipe = Pipe()
-        let errorPipe = Pipe()
-        standardOutput = pipe
-        standardError = errorPipe
+        logProcessInfo(name: name)
+        log.writeInfo(for: self)
+        try log.synchronize()
+        let outputStart = try log.offset()
+        let logPath = Self.path(of: log, fallback: temporary)
+
+        // Child processes share this open file and its position, so their writes follow
+        // each other in order.
+        standardOutput = log
+        standardError = log
+        if standardInput == nil {
+            standardInput = FileHandle.nullDevice
+        }
 
         let process = self
-        let log = fileHandle
-        let outputBuffer = LineBuffer()
-        let errorBuffer = LineBuffer()
-
-        return AsyncStream<ProcessOutput> { continuation in
+        let stream = AsyncStream<ProcessOutput> { continuation in
             continuation.onTermination = { termination in
                 if case .cancelled = termination, process.isRunning {
                     process.terminate()
                 }
             }
 
-            pipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                guard !data.isEmpty else {
-                    handle.readabilityHandler = nil // End of file.
-                    return
-                }
-                for line in outputBuffer.append(data) {
-                    continuation.yield(.message(line))
-                    Logger.schnitzelKit.info("\(line, privacy: .public)")
-                    log?.write(line: line + "\n")
-                }
-            }
-
-            errorPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                guard !data.isEmpty else {
-                    handle.readabilityHandler = nil // End of file.
-                    return
-                }
-                for line in errorBuffer.append(data) {
-                    continuation.yield(.error(line))
-                    Logger.schnitzelKit.warning("\(line, privacy: .public)")
-                    log?.write(line: line + "\n")
-                }
-            }
-
             terminationHandler = { finished in
-                pipe.fileHandleForReading.readabilityHandler = nil
-                errorPipe.fileHandleForReading.readabilityHandler = nil
-
-                // Whatever is still in the pipes after the process exited.
-                let rest = (try? pipe.fileHandleForReading.readToEnd()) ?? nil
-                let errorRest = (try? errorPipe.fileHandleForReading.readToEnd()) ?? nil
-                for line in outputBuffer.append(rest ?? Data()) + outputBuffer.flush() {
+                let lines = Self.lines(in: logPath, from: outputStart)
+                for line in lines {
                     continuation.yield(.message(line))
-                    log?.write(line: line + "\n")
                 }
-                for line in errorBuffer.append(errorRest ?? Data()) + errorBuffer.flush() {
-                    continuation.yield(.error(line))
-                    log?.write(line: line + "\n")
-                }
-
-                finished.logTermination(name: name)
-                log?.write(line: "\nExited with status \(finished.terminationStatus)\n")
-                try? log?.close()
+                finished.logTermination(name: name, lastLines: lines.suffix(5))
+                log.write(line: "\nExited with status \(finished.terminationStatus)\n")
+                try? log.close()
+                if let temporary { try? FileManager.default.removeItem(at: temporary) }
                 continuation.yield(.terminated(status: finished.terminationStatus))
                 continuation.finish()
             }
-
-            continuation.yield(.started(pid: process.processIdentifier))
         }
+
+        do {
+            try run()
+        } catch {
+            terminationHandler = nil
+            try? log.close()
+            if let temporary { try? FileManager.default.removeItem(at: temporary) }
+            throw error
+        }
+        return stream.withStart(pid: processIdentifier)
     }
 
-    private func logTermination(name: String) {
+    /// The lines in `path` from byte `offset` on.
+    private static func lines(in path: String?, from offset: UInt64) -> [String] {
+        guard let path, let reader = FileHandle(forReadingAtPath: path) else { return [] }
+        defer { try? reader.close() }
+        guard (try? reader.seek(toOffset: offset)) != nil,
+              let data = try? reader.readToEnd() else { return [] }
+        return String(decoding: data, as: UTF8.self)
+            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+            .map(String.init)
+            .reversed().drop(while: \.isEmpty).reversed()
+    }
+
+    private static func path(of handle: FileHandle, fallback: URL?) -> String? {
+        if let fallback { return fallback.path }
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(handle.fileDescriptor, F_GETPATH, &buffer) != -1 else { return nil }
+        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+
+    private func logTermination(name: String, lastLines: ArraySlice<String>) {
         if terminationStatus == 0 {
             Logger.schnitzelKit.info(
-                "Terminated \(name) with status code '\(self.terminationStatus, privacy: .public)'"
+                "Terminated \(name, privacy: .public) with status code '\(self.terminationStatus, privacy: .public)'"
             )
         } else {
+            let tail = lastLines.joined(separator: " | ")
             Logger.schnitzelKit.warning(
-                "Terminated \(name) with status code '\(self.terminationStatus, privacy: .public)'"
+                "Terminated \(name, privacy: .public) with status code '\(self.terminationStatus, privacy: .public)': \(tail, privacy: .public)"
             )
         }
     }
 
     private func logProcessInfo(name: String) {
-        Logger.schnitzelKit.info("Running process \(name)")
+        Logger.schnitzelKit.info("Running process \(name, privacy: .public)")
 
         if let arguments = arguments {
-            Logger.schnitzelKit.info("Arguments: `\(arguments.joined(separator: " "))`")
+            Logger.schnitzelKit.info("Arguments: `\(arguments.joined(separator: " "), privacy: .public)`")
         }
         if let executableURL = executableURL {
-            Logger.schnitzelKit.info("Executable: `\(executableURL.path(percentEncoded: false))`")
-        }
-        if let directory = currentDirectoryURL {
-            Logger.schnitzelKit.info("Directory: `\(directory.path(percentEncoded: false))`")
+            Logger.schnitzelKit.info("Executable: `\(executableURL.path(percentEncoded: false), privacy: .public)`")
         }
     }
 }
 
-/// Collects bytes from a pipe and hands out complete UTF-8 lines.
-final class LineBuffer: @unchecked Sendable {
-    private var pending = Data()
-    private let lock = NSLock()
-
-    /// Adds `data` and returns every line that is now complete, without the newline.
-    func append(_ data: Data) -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        pending.append(data)
-        var lines: [String] = []
-        while let newline = pending.firstIndex(of: UInt8(ascii: "\n")) {
-            let lineData = pending[pending.startIndex..<newline]
-            lines.append(String(decoding: lineData, as: UTF8.self))
-            pending.removeSubrange(pending.startIndex...newline)
+private extension AsyncStream where Element == ProcessOutput {
+    /// Puts `.started` in front of the stream's events.
+    func withStart(pid: Int32) -> AsyncStream<ProcessOutput> {
+        let base = self
+        return AsyncStream { continuation in
+            continuation.yield(.started(pid: pid))
+            let task = Task {
+                for await event in base { continuation.yield(event) }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
-        return lines
-    }
-
-    /// Returns the last line if it had no trailing newline.
-    func flush() -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !pending.isEmpty else { return [] }
-        let line = String(decoding: pending, as: UTF8.self)
-        pending.removeAll()
-        return [line]
     }
 }
