@@ -304,6 +304,14 @@ Read-only observation of Anston's CrossOver 26.3.0 bottle "GTA V" (template `win
 - **Bottle registry:** standard `win10_64` template defaults (a list of `native, builtin` DllOverrides for old Microsoft components, `Direct3D\cb_access_map_w=1`, `Mac Driver\AllowSetGamma=0`); nothing specific to the game.
 - **For the recipe:** D3DMetal, MSync, `-nobattleye` (BattlEye off in the Rockstar Launcher), Steam and the Rockstar Games Launcher in the same Pfanne, and the Social Club program setting. Older engines also had a "simulate write-copy" list in `ntdll` naming the Rockstar Launcher, SocialClubHelper, Steam's overlay and other launchers; CodeWeavers' 26.3 source only keeps `WINE_SIMULATE_WRITECOPY` as an environment variable. Check whether the Rockstar Launcher needs it in Schnitzel before adding it.
 
+**Steam sign-in with 26.3.0-2 (investigation in progress, November 24, 2026).** Steam's window shows, but it never contacts its login servers: it keeps rescheduling "EConnect" and never makes its second `api.steampowered.com` request. Evidence so far, in scratch prefixes with identical files:
+- CrossOver's Wine signs in within 9–27 s, ours never; same environment either way, and MSync on or off makes no difference.
+- Ruled out: GnuTLS and certificates (WinHTTP HTTPS works, 161 roots in every prefix), the clock (`KUSER_SHARED_DATA`), vkd3d, configure options, the Mac-side modules, and CrossOver's per-program database (Steam signs in even when `cxcompatdb.so` can't find its database).
+- **The cause is in the Windows-side DLLs.** Our engine with CrossOver's 64-bit PE DLLs (symlinked in a scratch copy, nothing copied into the repo) signs in. A bisection over the 68 built-in DLLs `steam.exe` loads has narrowed it to 17 or fewer; finish it with `bisect.sh` (scratch) and then diff that DLL's source behavior.
+- CrossOver's binaries contain code that isn't in the published 26.3.0 source drop (`process:append_cmd_line HACK`), so the culprit may be a fix CodeWeavers shipped but didn't publish. Then write Schnitzel's own fix from observed behavior and the open source.
+
+**ROSETTA_ADVERTISE_AVX=1** (done): measured on macOS 26.6.2, Rosetta hides AVX unless it's set; with it, Windows programs see AVX, AVX2, FMA, F16C and BMI2, and AVX2 code runs correctly. On by default in Pfannen (settings file version 2 migrates old files); a switch in the Pfanne settings comes with Phase 2.
+
 ### Program settings
 
 Per-program settings live in SchnitzelKit's `ProgramSettings`, keyed by the program's file name (as Wine's `AppDefaults` are). Today they hold command line additions; recipes add more.
