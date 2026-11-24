@@ -13,9 +13,6 @@ name: Engines
 on:
   push:
     branches: [main, own-engine-builds]
-    # A tag engine-<CrossOver version>-<build> (for example engine-26.3.0-1) builds from
-    # scratch and creates a draft release. Path filters don't apply to tags.
-    tags: ["engine-*"]
     paths:
       - "engines/**"
       - ".github/workflows/engines.yml"
@@ -25,6 +22,13 @@ on:
       - ".github/workflows/engines.yml"
   workflow_dispatch:
     inputs:
+      # Releases are started by hand on a branch, not by pushing a tag: a tag's run can't read
+      # the branch's caches and would rebuild everything (GitHub only shares a branch's and the
+      # default branch's caches). The draft's tag is created when the draft is published.
+      release:
+        description: "Create a draft release with this engine version, e.g. 26.3.0-1 (empty: just build)"
+        type: string
+        default: ""
       rosetta:
         description: "Build on Apple Silicon under Rosetta 2 (the fallback if GitHub drops Intel runners)"
         type: boolean
@@ -33,8 +37,10 @@ on:
 permissions:
   contents: read
 
+# A new push cancels the previous push's run, but never a run started by hand (a release or
+# the Rosetta trial), which has a group of its own.
 concurrency:
-  group: engines-${{ github.ref }}
+  group: engines-${{ github.ref }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
   cancel-in-progress: true
 
 jobs:
@@ -287,12 +293,17 @@ jobs:
         run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
       - name: Engine version
         id: version
-        # A release tag engine-<CrossOver version>-<build> names the version; any other
-        # build is a numbered development build that is never released.
+        # A release run names the version (<CrossOver version>-<build>); any other build is a
+        # numbered development build that is never released.
+        env:
+          RELEASE: ${{ inputs.release }}
+          ROSETTA: ${{ inputs.rosetta }}
         run: |
           crossover="$(python3 -c 'import json; print(next(i["version"] for i in json.load(open("engines/inputs.json"))["inputs"] if i["id"] == "crossover-sources"))')"
-          if [[ "$GITHUB_REF" == refs/tags/engine-* ]]; then
-            version="${GITHUB_REF#refs/tags/engine-}"
+          if [[ -n "$RELEASE" ]]; then
+            [[ "$ROSETTA" != "true" ]] || { echo "error: releases are built on Intel, not in the Rosetta trial" >&2; exit 1; }
+            [[ "$RELEASE" =~ ^$crossover-[0-9]+$ ]] || { echo "error: release '$RELEASE' must be $crossover-<build number>" >&2; exit 1; }
+            version="$RELEASE"
           else
             version="$crossover-dev.${{ github.run_number }}"
           fi
@@ -369,12 +380,13 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # Only for release tags, and only when the package check and both prefix checks passed.
+  # Only for runs started with a release version, and only when the package check and both
+  # prefix checks passed.
   # The release is a draft: Anston downloads it, installs it with Install from file in Schnitzel,
   # tests it, and only then publishes it by hand. Only this job may write to the repository.
   release:
     name: Draft release (M5)
-    if: startsWith(github.ref, 'refs/tags/engine-')
+    if: inputs.release
     needs: [config, package, check-prefix]
     runs-on: ${{ needs.config.outputs.build-runner }}
     timeout-minutes: 30
@@ -413,16 +425,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.package.outputs.version }}
-          TAG: ${{ github.ref_name }}
+          TAG: engine-${{ needs.package.outputs.version }}
         run: |
           set -euo pipefail
+          # The tag is created at this commit when the draft is published. If it already exists,
+          # it must point here.
+          existing="$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')"
+          if [[ -n "$existing" && "$existing" != "$GITHUB_SHA" ]]; then
+            echo "error: tag $TAG already exists at $existing, not at $GITHUB_SHA" >&2
+            exit 1
+          fi
           if gh release view "$TAG" --json isDraft --jq .isDraft > is-draft.txt 2>/dev/null; then
             # Re-running the workflow refreshes the files of a draft, never of a published release.
             [[ "$(cat is-draft.txt)" == "true" ]] || { echo "error: $TAG is already published" >&2; exit 1; }
             gh release edit "$TAG" --notes-file notes.md
             gh release upload "$TAG" release/* --clobber
           else
-            gh release create "$TAG" release/* --draft --verify-tag \
+            gh release create "$TAG" release/* --draft --target "$GITHUB_SHA" \
               --title "Schnitzel engine $VERSION" --notes-file notes.md
           fi
           gh release view "$TAG" --json url,isDraft,isPrerelease,assets --jq '{url, isDraft, isPrerelease, assets: [.assets[].name]}'
