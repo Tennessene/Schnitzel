@@ -80,6 +80,8 @@ Each phase is its own branch (`phase-1-rebrand`, and so on) with small commits.
 - A minimal working UI (list, create, run, open C:, engine and graphics choice) so each piece can be tested. Phase 2 replaces it with the real design.
 - To verify on first real use, because they can only be checked with the actual downloads: the exact folder layout inside each archive, and whether Sikarugir engines already contain DXMT or MoltenVK. Schnitzel finds the Wine binary by searching the unpacked archive and shows what each component contains, so these show up in testing.
 
+Status (November 2026): built on branch `engine-pfanne-core`, with unit tests for everything that doesn't need a real Wine run. Waiting for Anston's test on his Mac with real downloads.
+
 ## Phase 2: New main interface
 
 - **Sidebar:** list of Pfannen, plus "Install" at the bottom.

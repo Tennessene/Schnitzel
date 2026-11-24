@@ -9,7 +9,7 @@
 Schnitzel is a free, open-source Mac app for running Windows games with Wine. Each game setup lives in a **Pfanne** (plural **Pfannen**): a self-contained Windows environment with its own settings, Wine engine version and graphics layer.
 
 > [!NOTE]
-> Schnitzel is in early development. This version is only the app skeleton: it opens a window and shows its About panel. Creating Pfannen and running games come in the next steps. See [SCHNITZEL_PLAN.md](SCHNITZEL_PLAN.md) for the roadmap.
+> Schnitzel is in early development. It can download Wine engines, DXVK and DXMT, import your own D3DMetal, create Pfannen and run Windows programs in them, through a basic interface. The real interface comes next. See [SCHNITZEL_PLAN.md](SCHNITZEL_PLAN.md) for the roadmap.
 
 ## Requirements
 
@@ -32,6 +32,12 @@ Run the tests with:
 
 ```
 scripts/test.sh
+```
+
+To also check that every download source still lists versions on GitHub (needs internet):
+
+```
+SCHNITZEL_NETWORK_TESTS=1 scripts/test.sh
 ```
 
 The app icon is an original illustration drawn in code. After changing [scripts/make-icon.swift](scripts/make-icon.swift), run `swift scripts/make-icon.swift` to regenerate `Resources/AppIcon.icns`.
