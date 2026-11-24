@@ -1,0 +1,98 @@
+# Engines: builds Schnitzel's own Wine engine from CodeWeavers' CrossOver source drop.
+#
+# This file is part of Schnitzel, licensed under the GNU General Public License v3.0 or later.
+# The full build plan is in SCHNITZEL_PLAN.md ("Own engine builds"). Milestone M1 sets up
+# pinned inputs, the fetch-and-verify step, caching and the toolchain check; later
+# milestones add the build, package, check and release jobs below them.
+#
+# Third-party actions are pinned to full commit SHAs (the tag is in the comment), so a
+# moved tag can't change what runs here.
+
+name: Engines
+
+on:
+  push:
+    branches: [main, own-engine-builds]
+    paths:
+      - "engines/**"
+      - ".github/workflows/engines.yml"
+  pull_request:
+    paths:
+      - "engines/**"
+      - ".github/workflows/engines.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engines-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Runner labels live here, in one place (see "Runners" in SCHNITZEL_PLAN.md for what to
+  # do when GitHub retires an image). Later jobs read them from this job's outputs.
+  config:
+    name: Runner labels
+    runs-on: ubuntu-latest
+    outputs:
+      build-runner: ${{ steps.labels.outputs.build-runner }}
+      arm-runner: ${{ steps.labels.outputs.arm-runner }}
+    steps:
+      - id: labels
+        run: |
+          echo "build-runner=macos-26-intel" >> "$GITHUB_OUTPUT"   # Intel x86_64; fallback: macos-15-intel
+          echo "arm-runner=macos-26" >> "$GITHUB_OUTPUT"           # Apple Silicon, for Rosetta checks
+
+  validate:
+    name: Check inputs.json and scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check inputs.json
+        run: python3 engines/scripts/fetch.py --check --summary "$GITHUB_STEP_SUMMARY"
+      - name: Test the fetch script
+        run: python3 -m unittest discover -s engines/tests -v
+
+  inputs:
+    name: Fetch and verify inputs
+    needs: [config, validate]
+    runs-on: ${{ needs.config.outputs.build-runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Keyed by inputs.json: any change to a pin downloads again. Every later job restores
+      # this same cache, so the large CrossOver drop is downloaded once per change.
+      - name: Restore or create the inputs cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/.cache/inputs
+          key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
+      - name: Fetch and verify every input
+        # Also re-checks files restored from the cache, so a damaged cache can't be used.
+        run: python3 engines/scripts/fetch.py --dest engines/.cache/inputs
+      - name: Disk space
+        run: df -h . | tail -1
+
+  toolchain:
+    name: Toolchain builds 32-bit and 64-bit programs
+    needs: [config, inputs]
+    runs-on: ${{ needs.config.outputs.build-runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Restore the inputs cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/.cache/inputs
+          key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
+          fail-on-cache-miss: true
+      - name: Build and check the test programs
+        run: engines/scripts/check-toolchain.sh engines/.cache/inputs engines/build
+      - name: Keep the test programs for the prefix check
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-programs
+          path: engines/build/test-programs/*.exe
+          retention-days: 7
+          if-no-files-found: error
