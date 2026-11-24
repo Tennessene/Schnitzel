@@ -6,7 +6,7 @@ Schnitzel is a **standalone project**, not a GitHub fork: it lives at `github.co
 
 Tagline: *"Windows games, pounded flat for your Mac."*
 
-Claude Code writes the code; Anston doesn't want to dig through or hand-write it himself. He reviews and tests on his Apple Silicon Mac. There is no deadline: choose the approach that gives the best result, not the fastest one.
+Changes are made in small steps on feature branches, compile-checked and unit-tested, and tested on Apple Silicon before merging. There is no deadline: choose the approach that gives the best result, not the fastest one.
 
 ---
 
@@ -50,10 +50,11 @@ Decision: build Schnitzel as a new app. Copy these WhiskyKit parts: process and 
 
 1. **Phase 1:** skeleton and rebrand.
 2. **Engine and Pfanne core.**
-3. **Phase 2:** new main interface.
-4. **Phase 4:** game presets (the Install screen needs the recipe format).
-5. **Phase 3:** per-game graphics auto-detection.
-6. **Phase 5:** the rest of the component updater.
+3. **Own engine builds.**
+4. **Phase 2:** new main interface.
+5. **Phase 4:** game presets (the Install screen needs the recipe format).
+6. **Phase 3:** per-game graphics auto-detection.
+7. **Phase 5:** the rest of the component updater.
 
 Each phase is its own branch (`phase-1-rebrand`, and so on) with small commits.
 
@@ -71,7 +72,7 @@ Each phase is its own branch (`phase-1-rebrand`, and so on) with small commits.
 
 - Copy the selected WhiskyKit files into `SchnitzelKit` with their headers and a change note.
 - Download Wine engines into the versioned component store, checking each download against the SHA-256 digest GitHub publishes for it. Each Pfanne pins its engine. Switching keeps the previous version for one-click rollback.
-  - **Engine sources** (changed from "Gcenx's wine-crossover builds", which Gcenx no longer publishes): the default is the **Sikarugir engines** built by Gcenx (`Sikarugir-App/Engines` releases, e.g. `WS12WineSikarugir11.0_1`). They are CrossOver-based and support MSync and D3DMetal. The official **WineHQ builds** by Gcenx (`Gcenx/macOS_Wine_builds`, devel and staging) are offered too, but upstream Wine lacks MSync and the patches D3DMetal needs.
+  - **Engine sources.** Schnitzel's own engine, built from CodeWeavers' CrossOver source (see "Own engine builds"), becomes the default once a build passes testing. Until then, the **Sikarugir engines** built by Gcenx (`Sikarugir-App/Engines`, e.g. `WS12WineSikarugir11.0_1`) are used **only as a temporary testing and comparison reference**, not as Schnitzel's default. The official **WineHQ builds** by Gcenx (`Gcenx/macOS_Wine_builds`) can be installed for comparison but are **never the default**: upstream Wine lacks MSync and the Mac driver hooks D3DMetal needs.
   - If an engine archive contains Apple's D3DMetal, Schnitzel deletes it right after unpacking and uses only the user's own import, so Schnitzel never distributes D3DMetal.
 - Import D3DMetal from the user's mounted Game Porting Toolkit disk image (its `redist/lib` folder) into `Components/D3DMetal/<version>/`. That copy stays on the user's Mac.
 - Install DXVK (Gcenx's DXVK-macOS) and DXMT (`3Shain/dxmt`, builtin build) into the component store.
@@ -79,6 +80,29 @@ Each phase is its own branch (`phase-1-rebrand`, and so on) with small commits.
 - Graphics layer setup per Pfanne as described under Architecture.
 - A minimal working UI (list, create, run, open C:, engine and graphics choice) so each piece can be tested. Phase 2 replaces it with the real design.
 - To verify on first real use, because they can only be checked with the actual downloads: the exact folder layout inside each archive, and whether Sikarugir engines already contain DXMT or MoltenVK. Schnitzel finds the Wine binary by searching the unpacked archive and shows what each component contains, so these show up in testing.
+
+## Own engine builds
+
+Goal: Schnitzel's default engine is Wine compiled from CodeWeavers' CrossOver source drops (`codeweavers.com/crossover/source`), built in the open with GitHub Actions and published as Schnitzel engine releases.
+
+What the source contains (checked with CrossOver 26.3.0, November 2026): `sources/wine` is Wine 11.0 plus CodeWeavers' changes (204 files changed and 17 added compared to WineHQ's Wine 11.0, 39 distinct `CW HACK` markers in 34 files). The main changes are MSync (`server/msync.c`, `ntdll/unix/msync.c`), the Mac driver hooks D3DMetal uses (`winemac.drv/d3dmetal*`), Mac driver and windowing fixes, wined3d using Vulkan for d3d10/11 on macOS, Rosetta and WoW64 fixes, and game-specific workarounds. The drop also contains CodeWeavers' MoltenVK, DXVK and vkd3d sources.
+
+Plan:
+- An `engines/` folder in this repository with the build script and the GitHub Actions workflow. Builds run on GitHub's macOS runners, which are free for public repositories.
+- Steps: download a source drop and check its SHA-256 (CodeWeavers publishes no checksums, so the hash of the first download is recorded in the repository and later downloads must match it); install the toolchain (Xcode command line tools, `llvm-mingw` for the Windows-side DLLs, bison, flex and the libraries Wine links against); configure a WoW64 build (`--enable-archs=i386,x86_64`) for x86_64, since Wine on Apple Silicon runs under Rosetta; build; package `bin/`, `lib/` and `share/` into a `.tar.xz` laid out like the other engines; publish it as a GitHub release of this repository with its SHA-256 in the release and in a checksum file.
+- Each release records exactly which source drop, toolchain versions and Schnitzel patches went into it, so any build can be reproduced.
+- Gcenx's public build scripts (`Gcenx/macports-wine`, `Gcenx/macOS_Wine_builds`) are a reference for configure flags and dependencies. They have no license file, so Schnitzel learns from them and credits them but doesn't copy their files.
+- **Never bundle Apple's D3DMetal.** The build includes only Wine's own side of the D3DMetal hooks. A CI check fails the build if `D3DMetal.framework` or `libd3dshared.dylib` appears in the package. CrossOver's `CX_APPLEGPTK_LIBD3DSHARED_PATH` variable may let Schnitzel point Wine at the user's imported D3DMetal instead of copying it into an engine assembly; check this during the phase.
+- Schnitzel lists these releases as a third engine source (`ComponentSource`). When a build passes testing on Apple Silicon, it becomes the recommended engine and the Sikarugir engines are dropped from the default list.
+
+What could go wrong:
+- **Build environment.** CrossOver's own build setup isn't in the source drop, so dependency versions, configure flags and the mingw toolchain have to be worked out. GitHub's macOS runners change their Xcode and SDK versions over time and can break builds; pin versions and cache the toolchain.
+- **Build time and limits.** A full Wine build takes well over an hour; caching helps. Jobs are limited to 6 hours.
+- **Missing pieces.** Some CrossOver features may depend on parts not in the drop, or behave differently outside CrossOver (several hacks read `CX_*` variables). Each needs checking.
+- **Dependencies.** FreeType, GnuTLS, SDL, MoltenVK and GStreamer have to be built or bundled, with their licenses included in the package.
+- **Signing.** Without an Apple Developer ID, builds are ad-hoc signed and unnotarized. Schnitzel installs them itself, and Wine runs under Rosetta, so this is manageable, but it needs testing on a clean Mac.
+- **Licensing.** Wine is LGPL-2.1, so every release must link to the exact source it was built from, including Schnitzel's patches. CodeWeavers' trademarks ("CrossOver") must not be used in Schnitzel's engine names; describe them as "built from CodeWeavers' Wine source".
+- **Compatibility.** A first build may work worse than the Sikarugir engine. Compare the two with the same games before switching the default.
 
 ## Phase 2: New main interface
 
@@ -125,7 +149,7 @@ Show the installed version and the latest available version of each component, w
 
 | Component | Source | Auto-update? |
 |---|---|---|
-| Wine engine | Sikarugir engines by Gcenx (default) and WineHQ builds by Gcenx (GitHub releases) | Yes |
+| Wine engine | Schnitzel's own builds from CodeWeavers' source (default once tested). Sikarugir engines as a temporary reference, WineHQ builds for comparison only (GitHub releases) | Yes |
 | DXVK | Gcenx's DXVK-macOS (GitHub releases; last release 2023) | Yes |
 | MoltenVK | KhronosGroup/MoltenVK (GitHub releases) | Yes |
 | DXMT | `3Shain/dxmt` GitHub releases, builtin build (LGPL-2.1 from v0.81, MIT before) | Yes |
@@ -145,4 +169,4 @@ Rules:
 
 ## Testing
 
-Claude Code compile-checks every step with `swift build` but can't click through the app. After each step, tell Anston exactly what to build, click and check, and what output or screenshot to send back if something fails.
+Every step is compile-checked with `swift build` and unit-tested with `scripts/test.sh`. Before a branch is merged, it is tested in the app on an Apple Silicon Mac, following written steps that say what to build, click and check, and what output or screenshot to report if something fails.
