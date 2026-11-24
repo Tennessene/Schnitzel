@@ -30,6 +30,10 @@ public struct PfanneSetup: Sendable {
     /// How long `wineboot` may take to create a prefix. A first run on a slow Mac takes
     /// about a minute; anything far beyond that has hung.
     static let winebootTimeout: Duration = .seconds(300)
+    /// For every wineboot run (creating and updating the prefix): skip the Mono and Gecko
+    /// install prompts. Games that need .NET or a browser engine get them through Winetricks.
+    /// This is the only WINEDLLOVERRIDES Schnitzel sets, and it doesn't touch graphics DLLs.
+    static let winebootEnvironment = ["WINEDLLOVERRIDES": "mscoree,mshtml="]
 
     /// Creates the Wine prefix for a new Pfanne, checks that it really exists and applies
     /// the Pfanne's settings. Throws `PfanneError.prefixNotCreated` with the reason if Wine
@@ -51,14 +55,11 @@ public struct PfanneSetup: Sendable {
         let runtime = try WineRuntime.prepare(for: pfanne, store: store)
         try FileManager.default.createDirectory(at: pfanne.prefixURL, withIntermediateDirectories: true)
 
-        // Skip the Mono and Gecko install prompts while the prefix is created; games that
-        // need .NET or a browser engine get them through Winetricks. This is the only
-        // WINEDLLOVERRIDES Schnitzel sets, and it doesn't touch graphics DLLs.
+        // Skip the Mono and Gecko install prompts (winebootEnvironment).
         var failure: WineError?
         do {
             try await Wine.runWine(["wineboot", "--init"], runtime: runtime, logName: "wineboot",
-                                   environment: ["WINEDLLOVERRIDES": "mscoree,mshtml="],
-                                   timeout: Self.winebootTimeout)
+                                   environment: Self.winebootEnvironment, timeout: Self.winebootTimeout)
             try await Wine.waitForExit(runtime: runtime)
         } catch let error as WineError {
             failure = error
@@ -111,8 +112,9 @@ public struct PfanneSetup: Sendable {
         if engineChanged {
             // A different Wine version updates the prefix's own files on first run;
             // do it now, while nothing else is running.
+            // Same as when the prefix was created: don't offer to download Mono or Gecko.
             try await Wine.runWine(["wineboot", "--update"], runtime: runtime, logName: "wineboot update",
-                                   timeout: Self.winebootTimeout)
+                                   environment: Self.winebootEnvironment, timeout: Self.winebootTimeout)
             try await Wine.waitForExit(runtime: runtime)
         }
 
