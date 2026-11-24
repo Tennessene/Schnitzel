@@ -165,23 +165,56 @@ Build plan (written November 2026, before the build work starts):
 
 *Not built in the first release:*
 - **GLib and GStreamer** (used by `winegstreamer` for some games' video playback) are a separate milestone, because GStreamer is a large build. Until then the engine is configured without GStreamer, and the release notes say so.
-- **DXMT** keeps coming from DXMT's own releases (`3Shain/dxmt`, open source, built by its own CI; it isn't in the CrossOver drop and CrossOver ships the same project). Building it ourselves needs its own LLVM toolchain and can follow later if needed.
+- **DXMT** keeps coming from DXMT's own releases (`3Shain/dxmt`, open source, built by its own CI; it isn't in the CrossOver drop and CrossOver ships the same project). Its release archive and its license file are pinned in `inputs.json` with SHA-256 checksums (v0.80, MIT), and its license goes into `LICENSES/` wherever DXMT is shipped. Building it ourselves needs its own LLVM toolchain and can follow later if needed.
 
 *In Schnitzel.*
 - Two new sources: `schnitzel-engines` (this repository, tag prefix `engine-`, version prefix `schnitzel-engine`) and `schnitzel-dxvk` (tag prefix `dxvk-`).
 - Schnitzel's engine contains its own libraries, so Pfannen using it need no runtime-libraries component.
-- Once a release passes testing on Apple Silicon, `ComponentSource.defaultSourceIDs` switches to it, and the Sikarugir engine and Template libraries stop being recommended.
+- **Rule: Schnitzel's own engine does not replace the temporary Sikarugir 10.0_8 engine as Recommended until M7 (GStreamer) is done and Anston has tested that release on Apple Silicon.** Until then the own engine is offered next to it but not marked Recommended. Only then does `ComponentSource.defaultSourceIDs` switch to it, and the Sikarugir engine and Template libraries stop being recommended.
 
 *Milestones.* Each milestone gets small commits and a test before the next:
-- **M1:** `inputs.json`, fetch-and-verify, the workflow skeleton with caching.
+- **M1:** `inputs.json` (every input pinned by URL, version, license and SHA-256, **including the llvm-mingw toolchain**), the fetch-and-verify script with tests, and the workflow skeleton with caching. The workflow also checks the toolchain by building a tiny 32-bit and 64-bit Windows test program, which M4's prefix check reuses.
 - **M2:** unix libraries.
 - **M3:** MoltenVK.
-- **M4:** Wine, packaging, loader check and prefix check (artifacts only).
+- **M4:** Wine, packaging, loader check and prefix check (artifacts only). M4 also adds:
+  - **32-bit and 64-bit programs.** The prefix check runs the 32-bit (i686) and the 64-bit (x86_64) test program built with llvm-mingw in M1. Each prints a fixed line and exits with a fixed code. The check passes only if both run through the WoW64 build and their output and exit codes match.
+  - **CodeWeavers' features are compiled in.** The runner can't test D3DMetal itself (Schnitzel never bundles it), so the check proves the support is there:
+    - `winemac.so` contains the D3DMetal hook symbols from `winemac.drv/d3dmetal.c` (for example `macdrv_d3dmtl…`, checked with `nm`);
+    - `ntdll.so` contains the `CX_APPLEGPTK_LIBD3DSHARED_PATH` loader code;
+    - `ntdll.so` and `wineserver` contain MSync (`msync_init` and friends from `ntdll/unix/msync.c` and `server/msync.c`, checked with `nm`).
+    - At runtime, `wineboot` with `WINEMSYNC=1` must print `msync: up and running`, and the server must start its MSync Mach port.
+    - A build missing any of these fails.
+  - **How MSync is turned on:** it's off unless the environment variable `WINEMSYNC=1` is set for every Wine process and for `wineserver`. A Wine process that doesn't match the server's setting refuses to run (the "Server is running with WINEMSYNC" message). Schnitzel sets it in `PfanneSettings.environmentVariables` when a Pfanne's Sync setting is MSync, which is the default. `WineRuntime` passes the same environment to `wine` and `wineserver`. Schnitzel also sets `WINEESYNC=1` alongside it, because D3DMetal checks for ESync.
 - **M5:** draft releases and the Schnitzel sources.
 - **M6:** vkd3d and DXVK.
 - **M7:** GLib and GStreamer.
 
-A full Wine build on a GitHub runner is expected to take 1–2 hours. Each step's results are cached, so a change to one step doesn't rebuild everything.
+*Runners* (checked against GitHub's documentation, November 2026; free and unlimited for public repositories):
+
+| Label | Machine | Used for |
+|---|---|---|
+| `macos-26-intel` | Intel x86_64, 4 CPUs, 14 GB RAM, 14 GB disk | Building everything; the prefix check on Intel |
+| `macos-26` (= `macos-latest`) | Apple Silicon (M1), 3 CPUs, 7 GB RAM, 14 GB disk | The prefix check on Apple Silicon with Rosetta |
+| `macos-15-intel` | Intel x86_64, same size | Fallback build runner if `macos-26-intel` misbehaves |
+
+The labels are set in one place at the top of the workflow.
+
+When GitHub retires an image (it announces this months ahead in `actions/runner-images`; macOS 14 was retired on November 2, 2026):
+- Switch to the next newer image of the same kind and run a full build and prefix check before the next release.
+- If GitHub ever stops offering Intel macOS runners, build on Apple Silicon under Rosetta instead (`arch -x86_64` for the whole build). This is slower but produces the same x86_64 engine. Try it once during M4 so the fallback is known to work before it's needed.
+- No retirement date has been announced for `macos-15-intel` or `macos-26-intel` yet.
+
+*Time limits.* GitHub stops a job after 6 hours and allows at most 5 macOS jobs at once (free plan). A full Wine build on a 4-CPU Intel runner is expected to take about 1.5–3 hours, and the libraries, MoltenVK, vkd3d and DXVK together about another hour. So the build is split into separate jobs that each stay well under 6 hours:
+- `inputs`
+- `unix-libs`
+- `moltenvk`
+- `wine`
+- `pe-components`
+- `package`
+- the two `check` jobs
+- `release`
+
+Each job passes its result to the next as a workflow artifact, and caches it by the hash of its inputs and scripts, so an unchanged step is skipped. If the Wine job alone ever comes close to 5 hours, it is split again (configure plus the unix side, then the Windows-side DLLs). The cache has a 10 GB limit per repository and drops entries unused for 7 days, so the large CrossOver drop is cached once and shared by every job. Disk space is the tighter limit (14 GB), so each job deletes build trees it no longer needs.
 
 What could go wrong:
 - **Build environment.** CrossOver's own build setup isn't in the source drop, so dependency versions, configure flags and the mingw toolchain have to be worked out. GitHub's macOS runners change their Xcode and SDK versions over time and can break builds; pin versions and cache the toolchain.
