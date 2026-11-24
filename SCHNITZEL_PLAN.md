@@ -83,6 +83,8 @@ Each phase is its own branch (`phase-1-rebrand`, and so on) with small commits.
 - A minimal working UI (list, create, run, open C:, engine and graphics choice) so each piece can be tested. Phase 2 replaces it with the real design.
 - Checked with the real downloads (November 2026): `WS12WineSikarugir11.0_1` unpacks to `wswine.bundle/`, contains DXMT and no D3DMetal or MoltenVK, and loads its runtime libraries from outside the engine (hence the libraries component).
 
+Status (November 2026): built on branch `engine-pfanne-core`, with unit tests for everything that doesn't need a real Wine run, plus opt-in end-to-end tests with real engines. First test on Apple Silicon found that Sikarugir's `WS12WineSikarugir11.0_1` can't start Windows processes outside Sikarugir (Sikarugir-App/Sikarugir#295; Sikarugir's maintainer says its engines only run inside Sikarugir), so `WS12WineSikarugir10.0_8` (Wine 10) is the temporary reference instead. This is one more reason to build Schnitzel's own engine next.
+
 ## Own engine builds
 
 Goal: Schnitzel's default engine is Wine compiled from CodeWeavers' CrossOver source drops (`codeweavers.com/crossover/source`), built in the open with GitHub Actions and published as Schnitzel engine releases.
@@ -140,6 +142,22 @@ What could go wrong:
 - **Signing.** Without an Apple Developer ID, builds are ad-hoc signed and unnotarized. Schnitzel installs them itself, and Wine runs under Rosetta, so this is manageable, but it needs testing on a clean Mac.
 - **Licensing.** Wine is LGPL-2.1, so every release must link to the exact source it was built from, including Schnitzel's patches. CodeWeavers' trademarks ("CrossOver") must not be used in Schnitzel's engine names; describe them as "built from CodeWeavers' Wine source".
 - **Compatibility.** A first build may work worse than the Sikarugir engine. Compare the two with the same games before switching the default.
+
+Lesson from Sikarugir's `WS12WineSikarugir11.0_1` (November 2026, Sikarugir-App/Sikarugir#295):
+- **What happens:** run outside Sikarugir's app, the first Wine process starts, but every Windows process it starts afterwards (starting with `wineboot.exe`) exits at once with code 1 and no message, right after mapping its exe, `ntdll.dll` and `apisetschema.dll`. `wineboot` then reports `failed to start wineboot 1` and no prefix is created. `WS12WineSikarugir10.0_8` and CrossOver 26.3.0's own Wine work with the same environment. Sikarugir's maintainer closed the report saying the engines aren't meant to run outside Sikarugir.
+- **The loader memory reserve is not the cause, despite what the report suspected.** Wine on macOS has to keep the low 8 GB of address space free for Windows code. It does that in a second-stage loader, `lib/wine/x86_64-unix/wine`, linked with `-pagezero_size 0x1000` and two reserved segments, `WINE_RESERVE` (0x1000, 8 GB) and `WINE_TOP_DOWN` (0x7ff000000000). The first-stage `bin/wine` (CrossOver: `bin/wineloader`) is a small launcher with a normal 4 GB `__PAGEZERO` that only starts the second stage. 11.0_1 has exactly this two-stage layout, segment for segment the same as CrossOver 26.3.0. 10.0_8 uses an older single-stage layout, where `bin/wine` itself carries the reserved segments. Starting the second stage directly doesn't help either (tried in #295). The real cause is something else in how Sikarugir built or patched 11.0_1, probably something its own launcher sets up; it couldn't be pinned down from outside.
+- **What Schnitzel's build must do:**
+  - Build the loader exactly as CrossOver's `configure.ac` does on macOS x86_64: `bin/wine` as the first-stage launcher, and `lib/wine/x86_64-unix/wine` with `-pagezero_size,0x1000`, `-image_base,0x200000000`, `-segaddr,WINE_RESERVE,0x1000` and `-segaddr,WINE_TOP_DOWN,0x7ff000000000`.
+  - Check the result with `otool -l`: the second stage must have both segments at those addresses and a 0x1000 `__PAGEZERO`. Fail the build if not.
+  - Don't depend on anything from a launcher. Every variable Schnitzel's `WineRuntime` sets must be documented, and the engine must work with nothing else.
+  - Above all, prove it works end to end before release with the prefix check below. That check would have caught 11.0_1, since `wineboot` can't fill system32 when child processes can't start.
+
+Required check before any engine release is published:
+- The GitHub Actions workflow creates a fresh prefix with the packaged engine, exactly as Schnitzel does: unpack the release archive, set the same environment, run `wine wineboot --init`, then `wineserver -w`.
+- It then confirms the same three things Schnitzel checks after setup (`Pfanne.prefixState`): `drive_c` exists, `system.reg` and `user.reg` exist, and `drive_c/windows/system32` holds a real set of files (at least 50; a working prefix has several hundred).
+- It also runs `wine winecfg /v` (must print the Windows version), `wine cmd /c echo ok` (a Windows process starting another one), and `wine reg query` on a key `wineboot` writes.
+- It runs on an Intel runner and on an Apple Silicon runner with Rosetta, because Schnitzel's users are on Apple Silicon.
+- The release job depends on these checks. A build that fails any of them is never published; it stays a workflow artifact for debugging.
 
 ## Phase 2: New main interface
 
