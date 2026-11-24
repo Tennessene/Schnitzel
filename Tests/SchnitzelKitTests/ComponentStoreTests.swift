@@ -206,3 +206,34 @@ struct Scratch {
         #expect(scratch.contents(root.appending(path: "bin/wine")) == "loader")
     }
 }
+
+@Suite struct D3DMetalImportTests {
+    @Test func findsMountedToolkitsAndImportsOnce() async throws {
+        let scratch = try Scratch(); defer { scratch.remove() }
+        let volumes = scratch.url.appending(path: "Volumes")
+        try scratch.tree("Volumes/Evaluation environment for Windows games 3.0", [
+            "redist/lib/external/D3DMetal.framework/Versions/A/D3DMetal": "apple",
+            "redist/lib/wine/x86_64-windows/d3d12.dll": "apple d3d12"
+        ])
+        try scratch.tree("Volumes/Macintosh HD/Users/readme.txt", ["x": "y"])
+
+        let toolkits = D3DMetalImport.mountedToolkits(volumes: volumes)
+        #expect(toolkits.map(\.lastPathComponent) == ["Evaluation environment for Windows games 3.0"])
+
+        let store = ComponentStore(root: scratch.url.appending(path: "Components"))
+        let first = try await D3DMetalImport.importD3DMetal(from: toolkits[0], store: store)
+        #expect(first.version == "3.0") // No Info.plist in the fake framework, so from the name.
+        let again = try await D3DMetalImport.importD3DMetal(from: toolkits[0], store: store)
+        #expect(again.id == first.id)
+        #expect(store.installed(.d3dMetal).count == 1)
+    }
+
+    @Test func rejectsFoldersWithoutD3DMetal() async throws {
+        let scratch = try Scratch(); defer { scratch.remove() }
+        let folder = try scratch.tree("Random", ["file.txt": "x"])
+        let store = ComponentStore(root: scratch.url.appending(path: "Components"))
+        await #expect(throws: ComponentError.self) {
+            try await D3DMetalImport.importD3DMetal(from: folder, store: store)
+        }
+    }
+}
