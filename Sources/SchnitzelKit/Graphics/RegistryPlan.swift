@@ -85,6 +85,8 @@ public enum PfanneRegistry {
     public static let dllOverridesKey = #"HKEY_CURRENT_USER\Software\Wine\DllOverrides"#
     public static let macDriverKey = #"HKEY_CURRENT_USER\Software\Wine\Mac Driver"#
     public static let desktopKey = #"HKEY_CURRENT_USER\Control Panel\Desktop"#
+    /// Wine's per-program settings; one subkey per program file name.
+    public static let appDefaultsKey = #"HKEY_CURRENT_USER\Software\Wine\AppDefaults"#
 
     /// The d3d DLLs Schnitzel always sets explicitly, so nothing depends on Wine's
     /// default load order. DXVK's own DLL names are added on top.
@@ -96,7 +98,9 @@ public enum PfanneRegistry {
     ///   - graphics: the resolved graphics choice.
     ///   - dxvkDLLs: base names of the DLLs the pinned DXVK provides (for example `d3d11`).
     ///   - highResolutionMode: Wine's Retina mode.
-    public static func plan(graphics: ResolvedGraphics, dxvkDLLs: [String], highResolutionMode: Bool) -> RegistryPlan {
+    ///   - programs: per-program settings in effect (`PfanneSettings.effectivePrograms`).
+    public static func plan(graphics: ResolvedGraphics, dxvkDLLs: [String], highResolutionMode: Bool,
+                            programs: [String: ProgramSettings] = [:]) -> RegistryPlan {
         var plan = RegistryPlan()
 
         let dxvk = Set(graphics.installsDXVK ? dxvkDLLs : [])
@@ -110,6 +114,13 @@ public enum PfanneRegistry {
 
         plan.set(macDriverKey, "RetinaMode", .string(highResolutionMode ? "y" : "n"))
         plan.set(desktopKey, "LogPixels", .dword(highResolutionMode ? 192 : 96))
+
+        // Read by Schnitzel's Wine patch 0001 when the program starts.
+        for program in programs.keys.sorted() {
+            guard let append = programs[program]?.commandLineAppend else { continue }
+            let trimmed = append.trimmingCharacters(in: .whitespaces)
+            plan.set(appDefaultsKey + "\\" + program, "CommandLineAppend", trimmed.isEmpty ? .delete : .string(trimmed))
+        }
         return plan
     }
 }

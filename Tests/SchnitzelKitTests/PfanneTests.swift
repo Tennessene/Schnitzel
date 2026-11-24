@@ -99,7 +99,13 @@ import Testing
         #expect(try WineRuntime.prepare(for: pfanne, store: components).appliedFingerprint == before)
 
         pfanne.settings.wine.windowsVersion = .win11
-        #expect(try WineRuntime.prepare(for: pfanne, store: components).appliedFingerprint != before)
+        let afterVersion = try WineRuntime.prepare(for: pfanne, store: components).appliedFingerprint
+        #expect(afterVersion != before)
+
+        // Program settings are written into the registry, so they count too.
+        #expect(afterVersion.contains("steamwebhelper.exe:--no-sandbox"))
+        pfanne.settings.programs["game.exe"] = ProgramSettings(commandLineAppend: "-dx11")
+        #expect(try WineRuntime.prepare(for: pfanne, store: components).appliedFingerprint != afterVersion)
     }
 
     @Test func launchArgumentsMatchTheFileType() {

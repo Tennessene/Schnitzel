@@ -122,6 +122,43 @@ import Testing
 @Suite struct RegistryPlanTests {
     let dxvkDLLs = ["d3d9", "d3d10", "d3d10_1", "d3d10core", "d3d11", "dxgi"]
 
+    @Test func everyPfanneGivesSteamsWebHelperItsOptions() {
+        let graphics = ResolvedGraphics(provider: .dxmt, defaultSlot: .builtin, installsDXVK: false)
+        let plan = PfanneRegistry.plan(graphics: graphics, dxvkDLLs: [], highResolutionMode: false,
+                                       programs: PfanneSettings(name: "P").effectivePrograms)
+        let key = PfanneRegistry.appDefaultsKey + #"\steamwebhelper.exe"#
+        #expect(plan.value(key, "CommandLineAppend") == .string("--no-sandbox --in-process-gpu --disable-gpu"))
+        #expect(plan.value(PfanneRegistry.appDefaultsKey + #"\socialclubhelper.exe"#, "CommandLineAppend")
+                == .string("--in-process-gpu --use-gl=angle --use-angle=swiftshader"))
+        #expect(plan.regFileText.contains(#"[HKEY_CURRENT_USER\Software\Wine\AppDefaults\steamwebhelper.exe]"#))
+    }
+
+    @Test func aPfanneCanChangeOrTurnOffAProgramSetting() {
+        var settings = PfanneSettings(name: "P")
+        settings.programs[#"C:\Games\Steam\SteamWebHelper.EXE"#] = ProgramSettings(commandLineAppend: "  ")
+        settings.programs["game.exe"] = ProgramSettings(commandLineAppend: " -dx11 ", reason: "test")
+        let graphics = ResolvedGraphics(provider: .wineD3D, defaultSlot: .builtin, installsDXVK: false)
+        let plan = PfanneRegistry.plan(graphics: graphics, dxvkDLLs: [], highResolutionMode: false,
+                                       programs: settings.effectivePrograms)
+        #expect(plan.value(PfanneRegistry.appDefaultsKey + #"\steamwebhelper.exe"#, "CommandLineAppend") == .delete)
+        #expect(plan.value(PfanneRegistry.appDefaultsKey + #"\game.exe"#, "CommandLineAppend") == .string("-dx11"))
+        #expect(ProgramSettings.key(for: "/x/Y/Launcher.exe") == "launcher.exe")
+    }
+
+    @Test func olderSettingsFilesHaveNoProgramsButGetTheDefaults() throws {
+        let old = Data(#"""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <plist version="1.0"><dict><key>fileVersion</key><integer>1</integer><key>name</key><string>Old</string></dict></plist>
+        """#.utf8)
+        let settings = try PropertyListDecoder().decode(PfanneSettings.self, from: old)
+        #expect(settings.programs.isEmpty)
+        #expect(settings.effectivePrograms["steamwebhelper.exe"] != nil)
+        var changed = settings
+        changed.programs["game.exe"] = ProgramSettings(commandLineAppend: "-x")
+        let encoded = try PropertyListEncoder().encode(changed)
+        #expect(try PropertyListDecoder().decode(PfanneSettings.self, from: encoded).programs == changed.programs)
+    }
+
     @Test func builtinSlotSetsEveryGraphicsDLLToBuiltin() {
         let graphics = ResolvedGraphics(provider: .d3dMetal, defaultSlot: .builtin, installsDXVK: true)
         let plan = PfanneRegistry.plan(graphics: graphics, dxvkDLLs: dxvkDLLs, highResolutionMode: false)

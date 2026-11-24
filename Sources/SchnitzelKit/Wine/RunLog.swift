@@ -51,7 +51,13 @@ public enum RunLog {
         header += runtime.overlay.map { " \($0.version)" } ?? ""
         header += ", default \(runtime.graphics.defaultSlot == .native ? "DXVK" : "builtin")"
         header += runtime.dxvk.map { ", DXVK \($0.version) installed" } ?? ""
-        header += "\nHigh Resolution Mode: \(settings.wine.highResolutionMode ? "on" : "off")\n\n"
+        header += "\nHigh Resolution Mode: \(settings.wine.highResolutionMode ? "on" : "off")\n"
+        for program in settings.effectivePrograms.keys.sorted() {
+            if let append = settings.effectivePrograms[program]?.commandLineAppend, !append.isEmpty {
+                header += "Program setting: \(program) gets \(append)\n"
+            }
+        }
+        header += "\n"
         handle.write(line: header)
         return (handle, url)
     }

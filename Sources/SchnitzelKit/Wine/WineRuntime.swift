@@ -116,7 +116,9 @@ public struct WineRuntime: Sendable {
             "provider=\(graphics.provider.rawValue)",
             "overlay=\(overlay?.version ?? "-")",
             "slot=\(graphics.defaultSlot.rawValue)",
-            "dxvk=\(dxvk?.version ?? "-")"
+            "dxvk=\(dxvk?.version ?? "-")",
+            "programs=" + settings.effectivePrograms.keys.sorted()
+                .map { "\($0):\(settings.effectivePrograms[$0]?.commandLineAppend ?? "")" }.joined(separator: ",")
         ]
         return parts.joined(separator: ";")
     }

@@ -148,6 +148,13 @@ public struct PfanneSettings: Codable, Equatable, Sendable {
     public var pins = ComponentPins()
     /// The pins before the last change, for one-click rollback. Nil if nothing changed yet.
     public var previousPins: ComponentPins?
+    /// This Pfanne's own per-program settings, laid over `ProgramDefaults.builtIn`.
+    public var programs: [String: ProgramSettings] = [:]
+
+    /// The per-program settings in effect: built-in defaults plus this Pfanne's own.
+    public var effectivePrograms: [String: ProgramSettings] {
+        ProgramDefaults.effective(programs)
+    }
 
     public init(name: String) {
         self.name = name
@@ -165,6 +172,7 @@ public struct PfanneSettings: Codable, Equatable, Sendable {
         self.graphics = try container.decodeIfPresent(GraphicsSettings.self, forKey: .graphics) ?? GraphicsSettings()
         self.pins = try container.decodeIfPresent(ComponentPins.self, forKey: .pins) ?? ComponentPins()
         self.previousPins = try container.decodeIfPresent(ComponentPins.self, forKey: .previousPins)
+        self.programs = try container.decodeIfPresent([String: ProgramSettings].self, forKey: .programs) ?? [:]
     }
 
     /// Changes the pins and remembers the old ones for rollback.

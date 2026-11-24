@@ -120,7 +120,8 @@ public struct PfanneSetup: Sendable {
         try DXVKInstaller.sync(dxvk: runtime.dxvk, prefix: pfanne.prefixURL)
         let plan = PfanneRegistry.plan(
             graphics: runtime.graphics, dxvkDLLs: runtime.dxvk?.manifest.dlls ?? [],
-            highResolutionMode: pfanne.settings.wine.highResolutionMode)
+            highResolutionMode: pfanne.settings.wine.highResolutionMode,
+            programs: pfanne.settings.effectivePrograms)
         try await Wine.importRegistry(plan, runtime: runtime)
         try await Wine.waitForExit(runtime: runtime)
 
