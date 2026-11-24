@@ -19,7 +19,6 @@
 import AppKit
 import SchnitzelKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// A Pfanne's actions and settings. Minimal layout for testing the core; Phase 2 redesigns it.
 struct PfanneDetailView: View {
@@ -173,11 +172,37 @@ struct PfanneDetailView: View {
     private func chooseProgram() {
         let panel = NSOpenPanel()
         panel.title = "Run a Windows program in \(pfanne.name)"
+        panel.message = "Choose a Windows program, installer, batch file or shortcut (.exe, .msi, .bat, .cmd, .lnk, .com)."
         panel.prompt = "Run"
-        panel.allowedContentTypes = ["exe", "msi", "bat", "lnk"].compactMap { UTType(filenameExtension: $0) }
-        panel.allowsOtherFileTypes = false
-        panel.directoryURL = pfanne.isPrefixCreated ? pfanne.driveC : FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        // No allowedContentTypes: macOS has no real type for .exe, so a type filter greys
+        // out every program. The delegate checks extensions instead.
+        let filter = WindowsProgramPanelFilter()
+        panel.delegate = filter
+        // Installers are usually in Downloads; programs installed in the Pfanne are in
+        // its C: drive, which the user can reach with Open C: Drive or by browsing.
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        let response = panel.runModal()
+        withExtendedLifetime(filter) {}
+        guard response == .OK, let url = panel.url else { return }
         Task { await model.run(url, in: pfanne) }
+    }
+}
+
+/// Lets an open panel enable folders and Windows programs, judged by file extension.
+final class WindowsProgramPanelFilter: NSObject, NSOpenSavePanelDelegate {
+    func panel(_ sender: Any, shouldEnable url: URL) -> Bool {
+        WindowsProgram.isSelectableInPicker(url)
+    }
+
+    func panel(_ sender: Any, validate url: URL) throws {
+        guard WindowsProgram.hasRunnableExtension(url) else {
+            throw CocoaError(.fileReadUnsupportedScheme, userInfo: [
+                NSLocalizedDescriptionKey: "“\(url.lastPathComponent)” isn't a Windows program.",
+                NSLocalizedRecoverySuggestionErrorKey: "Choose an .exe, .msi, .bat, .cmd, .lnk or .com file."
+            ])
+        }
     }
 }
