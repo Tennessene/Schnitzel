@@ -23,10 +23,12 @@ import SwiftUI
 @main
 struct SchnitzelApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @State private var model = AppModel()
 
     var body: some Scene {
         Window(SchnitzelInfo.appName, id: AppDelegate.mainWindowID) {
             MainWindowContent(appDelegate: appDelegate)
+                .environment(model)
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -39,10 +41,16 @@ struct SchnitzelApp: App {
             }
             MainWindowCommands()
         }
+
+        Window("Components", id: ComponentsWindow.id) {
+            ComponentsWindow()
+                .environment(model)
+        }
+        .defaultSize(width: 720, height: 560)
     }
 }
 
-/// Window > Schnitzel (⌘0): brings the main window back after it was closed.
+/// Window > Schnitzel (⌘0) and Window > Components (⇧⌘9).
 /// SwiftUI doesn't list a closed `Window` scene in the Window menu by itself.
 private struct MainWindowCommands: Commands {
     @Environment(\.openWindow) private var openWindow
@@ -53,6 +61,10 @@ private struct MainWindowCommands: Commands {
                 openWindow(id: AppDelegate.mainWindowID)
             }
             .keyboardShortcut("0", modifiers: .command)
+            Button("Components") {
+                openWindow(id: ComponentsWindow.id)
+            }
+            .keyboardShortcut("9", modifiers: [.command, .shift])
             Divider()
         }
     }

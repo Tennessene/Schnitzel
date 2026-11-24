@@ -19,24 +19,143 @@
 import SchnitzelKit
 import SwiftUI
 
-/// Main window. Phase 1 placeholder: the real sidebar and Pfanne views come in Phase 2.
+/// Main window. A minimal working layout for testing the core; Phase 2 replaces it.
 struct ContentView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
+    @State private var showingNewPfanne = false
+
     var body: some View {
+        @Bindable var model = model
         NavigationSplitView {
-            List {
+            List(selection: $model.selection) {
                 Section(SchnitzelInfo.pfannePlural) {
-                    Text("No \(SchnitzelInfo.pfannePlural) yet")
-                        .foregroundStyle(.secondary)
+                    if model.pfannen.isEmpty {
+                        Text("No \(SchnitzelInfo.pfannePlural) yet")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(model.pfannen) { pfanne in
+                        Label(pfanne.name, systemImage: "frying.pan")
+                            .badge(model.running[pfanne.id]?.count ?? 0)
+                            .tag(pfanne.id)
+                    }
                 }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    openWindow(id: ComponentsWindow.id)
+                } label: {
+                    Label("Components", systemImage: "shippingbox")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.borderless)
+                .padding(10)
+            }
         } detail: {
-            ContentUnavailableView {
-                Label("Welcome to \(SchnitzelInfo.appName)", systemImage: "frying.pan")
-            } description: {
-                Text(SchnitzelInfo.tagline)
+            if let pfanne = model.selectedPfanne {
+                PfanneDetailView(pfanne: pfanne)
+                    .id(pfanne.id)
+            } else {
+                WelcomeView(showingNewPfanne: $showingNewPfanne)
             }
         }
         .navigationTitle(SchnitzelInfo.appName)
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    showingNewPfanne = true
+                } label: {
+                    Label("New \(SchnitzelInfo.pfanneSingular)", systemImage: "plus")
+                }
+                .help("New \(SchnitzelInfo.pfanneSingular)")
+            }
+        }
+        .sheet(isPresented: $showingNewPfanne) {
+            NewPfanneSheet()
+        }
+        .alert("Something went wrong", isPresented: Binding(
+            get: { model.errorMessage != nil },
+            set: { if !$0 { model.errorMessage = nil } }
+        )) {
+            Button("OK") { model.errorMessage = nil }
+        } message: {
+            Text(model.errorMessage ?? "")
+        }
+    }
+}
+
+private struct WelcomeView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
+    @Binding var showingNewPfanne: Bool
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Welcome to \(SchnitzelInfo.appName)", systemImage: "frying.pan")
+        } description: {
+            if model.installed(.engine).isEmpty {
+                Text("\(SchnitzelInfo.tagline)\nStart by downloading a Wine engine in Components.")
+            } else {
+                Text("\(SchnitzelInfo.tagline)\nCreate a \(SchnitzelInfo.pfanneSingular) to install a game or launcher.")
+            }
+        } actions: {
+            if model.installed(.engine).isEmpty {
+                Button("Open Components") { openWindow(id: ComponentsWindow.id) }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button("New \(SchnitzelInfo.pfanneSingular)") { showingNewPfanne = true }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+}
+
+struct NewPfanneSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
+    @State private var name = ""
+    @State private var engine: String?
+
+    var body: some View {
+        let engines = model.installed(.engine)
+        Form {
+            TextField("Name", text: $name, prompt: Text("For example: GTA V"))
+            Picker("Wine engine", selection: $engine) {
+                if engines.isEmpty {
+                    Text("None installed").tag(String?.none)
+                }
+                ForEach(engines) { engine in
+                    Text(engine.version).tag(Optional(engine.version))
+                }
+            }
+            if engines.isEmpty {
+                Button("Download an engine in Components…") {
+                    openWindow(id: ComponentsWindow.id)
+                }
+            }
+            Text("Windows 10, \(model.installed(.d3dMetal).isEmpty ? "no D3DMetal yet" : "D3DMetal") and the newest installed graphics components. You can change all of this later.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .formStyle(.grouped)
+        .frame(width: 440)
+        .navigationTitle("New \(SchnitzelInfo.pfanneSingular)")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Create") {
+                    guard let engine else { return }
+                    let name = name
+                    dismiss()
+                    Task { await model.createPfanne(name: name, engine: engine) }
+                }
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || engine == nil)
+            }
+        }
+        .onAppear { engine = engine ?? engines.first?.version }
     }
 }
