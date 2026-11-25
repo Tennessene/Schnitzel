@@ -51,7 +51,7 @@ public struct PfanneSetup: Sendable {
     }
 
     private func initializePrefix(for pfanne: Pfanne) async throws {
-        guard Rosetta.isInstalled else { throw WineError.rosettaMissing }
+        guard Rosetta.canRunWine else { throw WineError.rosettaMissing }
         let runtime = try WineRuntime.prepare(for: pfanne, store: store)
         try FileManager.default.createDirectory(at: pfanne.prefixURL, withIntermediateDirectories: true)
 
@@ -93,7 +93,7 @@ public struct PfanneSetup: Sendable {
     /// Call before every launch.
     @discardableResult
     public func applyIfNeeded(to pfanne: Pfanne) async throws -> WineRuntime {
-        guard Rosetta.isInstalled else { throw WineError.rosettaMissing }
+        guard Rosetta.canRunWine else { throw WineError.rosettaMissing }
         let state = pfanne.prefixState
         guard state == .ready else {
             throw PfanneError.needsRepair(name: pfanne.name, reason: Self.describe(state))

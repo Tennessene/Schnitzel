@@ -45,7 +45,7 @@ struct FakeEngine {
     }
 }
 
-@Suite(.enabled(if: Rosetta.isInstalled, "PfanneSetup checks for Rosetta first"))
+@Suite(.enabled(if: Rosetta.canRunWine, "PfanneSetup checks for Rosetta first on Apple Silicon"))
 struct PfanneSetupTests {
     @Test func reportsAFailedSetupWithTheReasonAndLog() async throws {
         let scratch = try Scratch(); defer { scratch.remove() }
@@ -191,5 +191,16 @@ struct PfanneSetupTests {
             #expect(version == .win10)
             try? await Wine.kill(runtime: runtime)
         }
+    }
+}
+
+@Suite struct RosettaTests {
+    // The CI program check found this on its first run (November 25, 2026): Schnitzel refused
+    // to create a Pfanne on an Intel Mac because Rosetta wasn't installed, which Intel Macs
+    // neither need nor can install.
+    @Test func onlyAppleSiliconNeedsRosetta() {
+        #expect(Rosetta.canRunWine(appleSilicon: false, rosettaInstalled: false))
+        #expect(Rosetta.canRunWine(appleSilicon: true, rosettaInstalled: true))
+        #expect(!Rosetta.canRunWine(appleSilicon: true, rosettaInstalled: false))
     }
 }

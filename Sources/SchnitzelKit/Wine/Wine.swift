@@ -242,8 +242,28 @@ public enum WineError: Error, LocalizedError, Equatable {
 }
 
 public enum Rosetta {
-    /// Whether Rosetta 2 is installed. Wine's engines are Intel programs and need it.
+    static let runtimePath = "/Library/Apple/usr/libexec/oah/libRosettaRuntime"
+
+    /// Whether Rosetta 2 is installed.
     public static var isInstalled: Bool {
-        FileManager.default.fileExists(atPath: "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
+        FileManager.default.fileExists(atPath: runtimePath)
+    }
+
+    /// Whether this Mac has an Apple Silicon processor. True also when Schnitzel itself
+    /// runs under Rosetta, because `hw.optional.arm64` describes the hardware.
+    public static var isAppleSilicon: Bool {
+        var value: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        return sysctlbyname("hw.optional.arm64", &value, &size, nil, 0) == 0 && value == 1
+    }
+
+    /// Whether Wine can run: Wine's engines are Intel programs, so Apple Silicon Macs need
+    /// Rosetta 2; Intel Macs run them directly and have no Rosetta to install.
+    public static var canRunWine: Bool {
+        canRunWine(appleSilicon: isAppleSilicon, rosettaInstalled: isInstalled)
+    }
+
+    static func canRunWine(appleSilicon: Bool, rosettaInstalled: Bool) -> Bool {
+        !appleSilicon || rosettaInstalled
     }
 }
