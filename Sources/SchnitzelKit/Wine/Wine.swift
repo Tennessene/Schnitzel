@@ -64,7 +64,9 @@ public enum Wine {
             ?? (FileManager.default.fileExists(atPath: driveC.path) ? driveC : runtime.pfanne.url)
         process.qualityOfService = .userInitiated
         let log = try RunLog.create(for: runtime, name: logName)
-        return Run(events: try process.runStream(name: logName, fileHandle: log.handle), log: log.url)
+        let events = try process.runStream(name: logName, fileHandle: log.handle)
+        RunLog.watch(log.url)
+        return Run(events: events, log: log.url)
     }
 
     /// Runs Wine and waits for it, returning everything it printed.

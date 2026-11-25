@@ -23,8 +23,8 @@
 # It keeps everything in WORK_DIR (SCHNITZEL_DATA_DIR), never in the user's own Pfannen.
 #
 # Why through schnitzel-cli: the first version of this check set up Wine by hand and
-# passed, while a Pfanne made by the app failed. The app's default Pfanne runs from an
-# engine assembly with DXMT and has DXVK in system32; the hand-made one had neither. Now
+# passed, while a Pfanne made by the app failed. The app's default Pfanne then ran from an
+# engine assembly with DXMT and had DXVK in system32; the hand-made one had neither. Now
 # every step (Install from File, the default components, New Pfanne, Run) is the app's code.
 #
 # What passes:
