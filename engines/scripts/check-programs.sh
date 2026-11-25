@@ -29,7 +29,8 @@
 #
 # What passes:
 #   rockstar  the launcher's silent install sets up Social Club (Social Club's DLLs appear),
-#             which needs the launcher's own window to start (it uses Direct3D 11).
+#             which needs the launcher's own window to start (it uses Direct3D 11). The
+#             installer must log "Silent install mode", so nobody can pass it by clicking.
 #   steam     Steam's installer, then Steam's first start: it updates itself, restarts and
 #             connects to a Steam Connection Manager (logs/connection_log.txt), while the
 #             Rockstar programs from the first check are still running.
@@ -50,6 +51,11 @@ dxmt_version="dxmt-v0.80"
 dxvk_version="dxvk-macos-v1.10.3-20230507-repack"
 rockstar_url="https://gamedownloads.rockstargames.com/public/installer/Rockstar-Games-Launcher.exe"
 steam_url="https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe"
+# The installer matches short flags anywhere in its command line: /s (silent) and /f (force).
+# Without /f it only stays silent when HKLM\SOFTWARE\Rockstar Games\Launcher already exists,
+# so on a fresh Pfanne "/silent" alone shows the setup wizard ("Normal install mode" in its
+# installer_log.txt). "/silent /forceinstall" is the pair the installer itself contains.
+rockstar_args=(/silent /forceinstall)
 # Seconds. Passing runs on Anston's Mac took 60-156 s (Rockstar, which downloads Social Club)
 # and 116-209 s (Steam, which downloads a 336 MB update and restarts itself three times). The
 # 3-CPU Apple Silicon runner, where everything runs under Rosetta, needed more than 240 s for
@@ -120,14 +126,44 @@ for program in "${programs[@]}"; do
     rockstar)
         echo "== Rockstar Games Launcher sets up Social Club"
         fetch "$rockstar_url" "$work/inbox/Rockstar-Games-Launcher.exe"
-        "$cli" run "$pfanne" "$work/inbox/Rockstar-Games-Launcher.exe" /silent > "$work/logs/rockstar-cli.txt" 2>&1 &
         social_club="$drive_c/Program Files/Rockstar Games/Social Club"
+        launcher="$drive_c/Program Files/Rockstar Games/Launcher/Launcher.exe"
+        installer_log="$drive_c/ProgramData/Rockstar Games/Launcher/installer_log.txt"
         start=$(date +%s); ok=0
+        # The silent install only copies the launcher and doesn't start it ("Run on close:
+        # FALSE"); the launcher then installs Social Club. The wizard's last page starts it.
+        "$cli" run "$pfanne" "$work/inbox/Rockstar-Games-Launcher.exe" "${rockstar_args[@]}" > "$work/logs/rockstar-cli.txt" 2>&1 &
+        # The installer's first process exits at once and the install goes on in others, so
+        # wait until none of the installer's or the Visual C++ installers' processes is left.
+        # Its installer_log.txt names the mode within a second and is deleted later, so keep a
+        # copy as soon as it shows the mode.
+        saved_log="$work/logs/rockstar/installer_log.txt"
+        mkdir -p "$work/logs/rockstar"
         while (( $(date +%s) - start < rockstar_limit )); do
+            if [[ ! -s "$saved_log" ]] && grep -a -q "install mode" "$installer_log" 2>/dev/null; then
+                cp "$installer_log" "$saved_log"
+            fi
+            # The wizard waits for clicks; a pass must never depend on someone clicking it.
+            if grep -a -q "Normal install mode" "$saved_log" 2>/dev/null; then break; fi
+            if [[ -s "$saved_log" && -f "$launcher" ]] \
+                && ! pgrep -f "$work/inbox/Rockstar-Games-Launcher.exe" > /dev/null \
+                && ! pgrep -f -i "vc_redist" > /dev/null; then break; fi
+            sleep 0.5
+        done
+        if grep -a -q "Normal install mode" "$saved_log" 2>/dev/null; then
+            echo "        the installer showed its setup wizard instead of installing silently" >&2
+        elif ! grep -a -q "Silent install mode" "$saved_log" 2>/dev/null || [[ ! -f "$launcher" ]]; then
+            echo "        the silent install didn't install the launcher" >&2
+        else
+            echo "        installed silently after $(( $(date +%s) - start )) s; starting the launcher"
+            "$cli" run "$pfanne" "$launcher" > "$work/logs/launcher-cli.txt" 2>&1 &
+        fi
+        while [[ -f "$launcher" ]] && ! grep -a -q "Normal install mode" "$saved_log" 2>/dev/null \
+            && (( $(date +%s) - start < rockstar_limit )); do
             sleep 5
             if ls "$social_club"/*.dll > /dev/null 2>&1; then ok=1; break; fi
             # DXMT's d3d11 lacks this; the launcher never gets further (seen every time).
-            if grep -q "SwapDeviceContextState" "$SCHNITZEL_DATA_DIR/Logs/$pfanne/"*Rockstar*.log 2>/dev/null; then break; fi
+            if grep -q "SwapDeviceContextState" "$SCHNITZEL_DATA_DIR/Logs/$pfanne/"*Launcher*.log 2>/dev/null; then break; fi
             # "The Rockstar Games Launcher failed to initialize!": its log stops the background
             # service without the launcher's worker thread ever starting (seen with D3DMetal).
             for launcher_log in "$drive_c"/users/*/Documents/"Rockstar Games"/Launcher/launcher*.log; do
@@ -145,11 +181,16 @@ for program in "${programs[@]}"; do
             grep -h -E "UNIMPLEMENTED|SwapDeviceContextState|RtlpWaitForCriticalSection" "$SCHNITZEL_DATA_DIR/Logs/$pfanne/"*.log 2>/dev/null \
                 | sort | uniq -c | head -5 | sed 's/^/        | /' >&2 || true
             # Once more with Wine's process, DLL and exception tracing, to see where it stops
-            # (the logs artifact has the full "Rockstar-Games-Launcher (debug)" log).
-            echo "        running the installer again with WINEDEBUG=$debug_channels for 120 s" >&2
+            # (the logs folder has the full "(debug)" run log).
             "$cli" stop "$pfanne" > /dev/null 2>&1 || true
-            "$cli" run --winedebug "$debug_channels" "$pfanne" "$work/inbox/Rockstar-Games-Launcher.exe" /silent \
-                > "$work/logs/rockstar-debug-cli.txt" 2>&1 &
+            if [[ -f "$launcher" ]]; then
+                echo "        running the launcher again with WINEDEBUG=$debug_channels for 120 s" >&2
+                "$cli" run --winedebug "$debug_channels" "$pfanne" "$launcher" > "$work/logs/rockstar-debug-cli.txt" 2>&1 &
+            else
+                echo "        running the installer again with WINEDEBUG=$debug_channels for 120 s" >&2
+                "$cli" run --winedebug "$debug_channels" "$pfanne" "$work/inbox/Rockstar-Games-Launcher.exe" "${rockstar_args[@]}" \
+                    > "$work/logs/rockstar-debug-cli.txt" 2>&1 &
+            fi
             sleep 120
             "$cli" stop "$pfanne" > /dev/null 2>&1 || true
             debug_log="$(ls -t "$SCHNITZEL_DATA_DIR/Logs/$pfanne/"*"(debug)"*.log 2>/dev/null | awk 'NR==1')"
