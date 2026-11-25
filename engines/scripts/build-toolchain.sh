@@ -82,10 +82,13 @@ for patch in "$ENGINE_REPO"/engines/patches/gcc/*.patch; do
     echo "gcc $(basename "$patch") $(shasum -a 256 "$patch" | awk '{print $1}')" >> "$prefix/patches.txt"
     echo "ok      $(basename "$patch")"
 done
+# --disable-libcc1: GDB's "compile" plugin, not needed, and it hits the same libc++ clash as
+# patch 0001 (its own headers come before gcc/system.h).
 mkdir -p "$work/gcc-build"
 (cd "$work/gcc-build" && "$work/gcc/configure" --prefix="$prefix" --target="$target" \
     --enable-languages=c,c++ --disable-multilib --disable-nls --disable-werror \
     --enable-threads=win32 --enable-shared --enable-static --without-isl --disable-libstdcxx-pch \
+    --disable-libcc1 \
     --with-sysroot="$prefix" --with-system-zlib "${gcc_flags[@]+"${gcc_flags[@]}"}" > configure.log \
     && make MAKEINFO=true -j"$JOBS" all-gcc > make-gcc.log && make MAKEINFO=true install-gcc > install-gcc.log) \
     || { tail -60 "$work/gcc-build/"*.log >&2; exit 1; }
