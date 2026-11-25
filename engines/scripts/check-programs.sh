@@ -46,6 +46,7 @@ steam_url="https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe"
 # Rockstar, so the limits leave room. The DXMT failure is still caught within seconds.
 rockstar_limit=${ROCKSTAR_LIMIT:-480}
 steam_limit=${STEAM_CONNECT_LIMIT:-600}
+debug_channels="+pid,+timestamp,+process,+loaddll,+seh"
 
 [[ -n "$work" && "$work" != "/" ]] || { echo "error: bad WORK_DIR" >&2; exit 1; }
 rm -rf "${work:?}"
@@ -114,6 +115,20 @@ for program in "${programs[@]}"; do
             echo "error: the Rockstar Games Launcher didn't set up Social Club within ${rockstar_limit} s" >&2
             grep -h -E "UNIMPLEMENTED|SwapDeviceContextState|RtlpWaitForCriticalSection" "$SCHNITZEL_DATA_DIR/Logs/$pfanne/"*.log 2>/dev/null \
                 | sort | uniq -c | head -5 | sed 's/^/        | /' >&2 || true
+            # Once more with Wine's process, DLL and exception tracing, to see where it stops
+            # (the logs artifact has the full "Rockstar-Games-Launcher (debug)" log).
+            echo "        running the installer again with WINEDEBUG=$debug_channels for 120 s" >&2
+            "$cli" stop "$pfanne" > /dev/null 2>&1 || true
+            "$cli" run --winedebug "$debug_channels" "$pfanne" "$work/inbox/Rockstar-Games-Launcher.exe" /silent \
+                > "$work/logs/rockstar-debug-cli.txt" 2>&1 &
+            sleep 120
+            "$cli" stop "$pfanne" > /dev/null 2>&1 || true
+            debug_log="$(ls -t "$SCHNITZEL_DATA_DIR/Logs/$pfanne/"*"(debug)"*.log 2>/dev/null | awk 'NR==1')"
+            if [[ -n "$debug_log" ]]; then
+                grep -E ":process:|err:|exception" "$debug_log" | grep -v -E "fixme|validate_state_table" \
+                    | cut -c1-220 | tail -15 | sed 's/^/        | /' >&2 || true
+            fi
+            ls "$drive_c/users/"*/AppData/Local/Temp 2>/dev/null | head -20 | sed 's/^/        temp: /' >&2 || true
             failed=1
         fi
         ;;

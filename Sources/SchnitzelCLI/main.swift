@@ -30,6 +30,8 @@ let usage = """
       download KIND [VERSION]            download from KIND's default source (default: the recommended version)
       create NAME --engine VERSION       new Pfanne with the app's default components, then its Windows environment
       run NAME FILE [ARGS...]            run a Windows program as the app does; waits until it exits
+      run --winedebug CHANNELS NAME FILE [ARGS...]
+                                         the same with Wine's WINEDEBUG set to CHANNELS (for diagnosis only)
       set NAME graphics LAYER            change the graphics layer as the app's setting does (auto, d3dMetal, dxmt, dxvk, wineD3D)
       env NAME                           print the environment programs in NAME get
       stop NAME                          stop every Wine process in NAME
@@ -96,10 +98,23 @@ func run(_ arguments: [String]) async throws -> Int32 {
         print("pins: engine \(pfanne.settings.pins.engine ?? "-"), DXMT \(pfanne.settings.pins.dxmt ?? "-"), DXVK \(pfanne.settings.pins.dxvk ?? "-"), D3DMetal \(pfanne.settings.pins.d3dMetal ?? "-")")
 
     case ("run", 2...):
+        var rest = rest
+        var debug: [String: String] = [:]
+        if rest.first == "--winedebug", rest.count >= 4 {
+            debug["WINEDEBUG"] = rest[1]
+            rest.removeFirst(2)
+        }
         let pfanne = try pfanne(named: rest[0])
         // The same two steps as the app's Run: apply changed settings, then start the program.
         let runtime = try await PfanneSetup(store: componentStore).applyIfNeeded(to: pfanne)
-        let run = try Wine.runProgram(at: URL(filePath: rest[1]), arguments: Array(rest.dropFirst(2)), runtime: runtime)
+        let file = URL(filePath: rest[1])
+        let run = debug.isEmpty
+            ? try Wine.runProgram(at: file, arguments: Array(rest.dropFirst(2)), runtime: runtime)
+            // Wine.runProgram plus one variable: same arguments, folder and log.
+            : try Wine.runWineProcess(
+                Wine.launchArguments(for: file) + rest.dropFirst(2), runtime: runtime,
+                logName: file.deletingPathExtension().lastPathComponent + " (debug)", environment: debug,
+                currentDirectory: file.deletingLastPathComponent())
         print("log: \(run.log.path)")
         var status: Int32 = -1
         for await event in run.events {
