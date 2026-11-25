@@ -90,7 +90,7 @@ echo "== New Pfanne"
 
 fetch() {
     curl --fail --location --silent --show-error --proto '=https' --max-time 600 --retry 3 -o "$2" "$1"
-    echo "        $(basename "$2") $(stat -f %z "$2") bytes, SHA-256 $(shasum -a 256 "$2" | awk '{print $1}')"
+    echo "        downloaded $(basename "$2") ($(stat -f %z "$2") bytes, SHA-256 $(shasum -a 256 "$2" | awk '{print $1}'))"
 }
 
 failed=0
