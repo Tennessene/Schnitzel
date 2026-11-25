@@ -30,7 +30,8 @@
 # What passes:
 #   rockstar  the launcher's silent install sets up Social Club (Social Club's DLLs appear),
 #             which needs the launcher's own window to start (it uses Direct3D 11). The
-#             installer must log "Silent install mode", so nobody can pass it by clicking.
+#             installer must log "Silent install mode", so nobody can pass it by clicking,
+#             and the launcher's window must then show ("WaitForWindow -> Active" in its log).
 #   steam     Steam's installer, then Steam's first start: it updates itself, restarts and
 #             connects to a Steam Connection Manager (logs/connection_log.txt), while the
 #             Rockstar programs from the first check are still running.
@@ -176,6 +177,22 @@ for program in "${programs[@]}"; do
         done
         if (( ok )); then
             echo "ok      Social Club set up after $(( $(date +%s) - start )) s"
+            # Then the launcher's window must show: its log reaches "WaitForWindow -> Active".
+            # (With D3DMetal it once stayed invisible, waiting for its browser, while another
+            # launcher used the same Social Club files.)
+            shown=0
+            while (( $(date +%s) - start < rockstar_limit )); do
+                if grep -a -q "SetState: WaitForWindow -> Active" "$drive_c"/users/*/Documents/"Rockstar Games"/Launcher/launcher*.log 2>/dev/null; then
+                    shown=1; break
+                fi
+                sleep 5
+            done
+            if (( shown )); then
+                echo "ok      the launcher's window showed after $(( $(date +%s) - start )) s"
+            else
+                echo "error: the launcher's window didn't show within ${rockstar_limit} s" >&2
+                failed=1
+            fi
         else
             echo "error: the Rockstar Games Launcher didn't set up Social Club within ${rockstar_limit} s" >&2
             grep -h -E "UNIMPLEMENTED|SwapDeviceContextState|RtlpWaitForCriticalSection" "$SCHNITZEL_DATA_DIR/Logs/$pfanne/"*.log 2>/dev/null \
