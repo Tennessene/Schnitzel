@@ -27,6 +27,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "Schnitzel", targets: ["Schnitzel"]),
+        .executable(name: "schnitzel-cli", targets: ["SchnitzelCLI"]),
         .library(name: "SchnitzelKit", targets: ["SchnitzelKit"])
     ],
     targets: [
@@ -35,6 +36,11 @@ let package = Package(
         // The SwiftUI app.
         .executableTarget(
             name: "Schnitzel",
+            dependencies: ["SchnitzelKit"]
+        ),
+        // Command-line access to SchnitzelKit, for the engine CI checks (same code as the app).
+        .executableTarget(
+            name: "SchnitzelCLI",
             dependencies: ["SchnitzelKit"]
         ),
         .testTarget(
