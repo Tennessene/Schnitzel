@@ -298,6 +298,9 @@ jobs:
     needs: [config, mingw-gcc, unix-libs, moltenvk]
     runs-on: ${{ needs.config.outputs.build-runner }}
     timeout-minutes: 340
+    permissions:
+      contents: read
+      actions: write   # to delete older ccache caches after saving the new one
     outputs:
       key: ${{ steps.key.outputs.key }}
     steps:
@@ -358,16 +361,50 @@ jobs:
           path: engines/build/mingw-gcc-x86_64
           key: engine-${{ needs.config.outputs.toolchain-key }}-x86_64-${{ needs.config.outputs.build-runner }}
           fail-on-cache-miss: true
-      - name: Install bison and flex
+      - name: Install bison, flex and ccache
         # Natively: Homebrew doesn't run under Rosetta on Apple Silicon.
         if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
-        run: brew list bison flex > /dev/null 2>&1 || brew install bison flex
+        run: brew list bison flex ccache > /dev/null 2>&1 || brew install bison flex ccache
+      # ccache keeps compiled files between runs, so changing one Wine patch recompiles only
+      # what it touches instead of all of Wine (about 1 h 45 min with GCC). Its cache is per
+      # runner and toolchain; each run saves a new one and deletes the older ones.
+      - name: Restore the ccache
+        if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/.cache/ccache
+          key: engine-ccache-${{ needs.config.outputs.build-runner }}-${{ needs.config.outputs.toolchain-key }}-${{ github.run_id }}
+          restore-keys: engine-ccache-${{ needs.config.outputs.build-runner }}-${{ needs.config.outputs.toolchain-key }}-
       - name: Build Wine
         if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
+        env:
+          SCHNITZEL_CCACHE: "1"
+          CCACHE_DIR: ${{ github.workspace }}/engines/.cache/ccache
+          CCACHE_MAXSIZE: 3G
+          # Sources are unpacked fresh every run; compare them by content, not time.
+          CCACHE_COMPILERCHECK: content
+          CCACHE_SLOPPINESS: include_file_mtime,include_file_ctime,time_macros
         run: ${{ needs.config.outputs.run }} engines/scripts/build-wine.sh engines/.cache/inputs engines/build
+      - name: Save the ccache
+        if: always() && steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/.cache/ccache
+          key: engine-ccache-${{ needs.config.outputs.build-runner }}-${{ needs.config.outputs.toolchain-key }}-${{ github.run_id }}
+      - name: Delete older ccache caches
+        if: always() && steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFIX: engine-ccache-${{ needs.config.outputs.build-runner }}-${{ needs.config.outputs.toolchain-key }}-
+          KEEP: engine-ccache-${{ needs.config.outputs.build-runner }}-${{ needs.config.outputs.toolchain-key }}-${{ github.run_id }}
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --key "$PREFIX" --limit 100 --json id,key \
+            --jq ".[] | select(.key != \"$KEEP\") | .id" | while read -r id; do
+            gh cache delete "$id" --repo "$GITHUB_REPOSITORY" || true
+          done
       - name: Keep the logs of a failed build
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

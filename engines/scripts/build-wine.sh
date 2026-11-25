@@ -58,7 +58,18 @@ flex_dir="$(tool_dir flex)"
 # (i386_CC, x86_64_CC below), so no other MinGW in PATH (Homebrew's, say) can be picked up.
 export PATH="$bison_dir:$flex_dir:$output/mingw-gcc-x86_64/bin:$output/mingw-gcc-i686/bin:$PATH"
 export CC=/usr/bin/clang CXX=/usr/bin/clang++
-"$CC" --version | awk 'NR==1'
+# SCHNITZEL_CCACHE=1 (CI) puts ccache in front of every compiler, the Mac's and both MinGW
+# GCCs, so a rebuild after a small patch only compiles what changed. ccache returns the same
+# object files the compiler would make; CCACHE_DIR and its other settings come from outside.
+cc_wrap=""
+if [[ "${SCHNITZEL_CCACHE:-}" == 1 ]]; then
+    ccache_bin="$(command -v ccache)" || { echo "error: SCHNITZEL_CCACHE=1 but ccache isn't installed" >&2; exit 1; }
+    cc_wrap="$ccache_bin "
+    export CC="$cc_wrap$CC" CXX="$cc_wrap$CXX"
+    "$ccache_bin" --version | awk 'NR==1'
+    "$ccache_bin" --zero-stats > /dev/null
+fi
+$CC --version | awk 'NR==1'
 "$gcc64" --version | awk 'NR==1'
 "$gcc32" --version | awk 'NR==1'
 bison --version | awk 'NR==1'
@@ -99,7 +110,7 @@ configure_args=(
     --without-capi --without-dbus --without-ffmpeg --without-fontconfig --without-gphoto
     --without-gssapi --without-gstreamer --without-krb5 --without-netapi --without-sane
     --without-udev --without-usb --without-v4l2
-    i386_CC="$gcc32" x86_64_CC="$gcc64"
+    i386_CC="$cc_wrap$gcc32" x86_64_CC="$cc_wrap$gcc64"
 )
 "$work/source/configure" --prefix="$install" "${configure_args[@]}" 2>&1 | tee "$work/configure.log"
 
@@ -127,7 +138,7 @@ if grep -E '^#define SONAME_' "$config_h" | grep -vE '^#define SONAME_[A-Z0-9_]+
     missing=1
 fi
 # And with the pinned GCC for both.
-for pair in "i386_CC:$gcc32" "x86_64_CC:$gcc64"; do
+for pair in "i386_CC:$cc_wrap$gcc32" "x86_64_CC:$cc_wrap$gcc64"; do
     grep -qx "${pair%%:*} = ${pair#*:}" "$work/build/Makefile" \
         || { echo "error: configure didn't take ${pair#*:} as ${pair%%:*}: $(grep "^${pair%%:*} " "$work/build/Makefile")" >&2; missing=1; }
 done
@@ -137,12 +148,14 @@ step "Build (this is the long part)"
 start=$(date +%s)
 make -j"$JOBS" > "$work/make.log" 2>&1 || { tail -80 "$work/make.log" >&2; exit 1; }
 echo "built in $(( ($(date +%s) - start) / 60 )) minutes"
+[[ -z "$cc_wrap" ]] || "$ccache_bin" --show-stats | sed 's/^/        ccache: /'
 
 step "Install"
 make install > "$work/install.log" 2>&1 || { tail -40 "$work/install.log" >&2; exit 1; }
 cp "$work/source/COPYING.LIB" "$work/source/LICENSE" "$work/source/AUTHORS" "$install/"
 cp "$work/configure.log" "$install/configure.log"
-printf '%s\n' "${configure_args[@]}" > "$install/configure-args.txt"
+# Recorded without the ccache wrapper: it doesn't change what gets built.
+for arg in "${configure_args[@]}"; do printf '%s\n' "${arg/=$cc_wrap/=}"; done > "$install/configure-args.txt"
 cp "$work/source/VERSION" "$install/wine-version.txt"  # "Wine version 11.0"
 cp "$work/patches.txt" "$install/patches.txt"
 for arch in i386-windows x86_64-windows x86_64-unix; do
