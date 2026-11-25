@@ -54,7 +54,16 @@ jobs:
       intel-runner: ${{ steps.labels.outputs.intel-runner }}
       arm-runner: ${{ steps.labels.outputs.arm-runner }}
       run: ${{ steps.labels.outputs.run }}
+      toolchain-key: ${{ steps.toolchain.outputs.key }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The MinGW-w64 GCC toolchain only depends on its own pins and build script, so a change
+      # to another input (a new CrossOver drop, say) doesn't rebuild the compiler.
+      - id: toolchain
+        run: |
+          hash="$(python3 -c 'import json,hashlib; d=json.load(open("engines/inputs.json"))["inputs"]; ids=("binutils","gcc","mingw-w64","mpfr","mpc","gmp"); print(hashlib.sha256(json.dumps(sorted([(e["id"],e["sha256"]) for e in d if e["id"] in ids])).encode() + open("engines/scripts/build-toolchain.sh","rb").read() + open("engines/scripts/common.sh","rb").read()).hexdigest()[:20])')"
+          echo "key=mingw-gcc-$hash" >> "$GITHUB_OUTPUT"
+          echo "Toolchain cache key: mingw-gcc-$hash"
       - id: labels
         env:
           ROSETTA: ${{ inputs.rosetta }}
@@ -103,9 +112,52 @@ jobs:
       - name: Disk space
         run: df -h . | tail -1
 
+  mingw-gcc:
+    name: MinGW-w64 GCC for ${{ matrix.arch }} (M1)
+    needs: [config, inputs]
+    strategy:
+      matrix:
+        arch: [i686, x86_64]
+    runs-on: ${{ needs.config.outputs.build-runner }}
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rosetta 2
+        if: runner.arch == 'ARM64'
+        run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
+      - name: Restore the built toolchain
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/mingw-gcc-${{ matrix.arch }}
+          key: engine-${{ needs.config.outputs.toolchain-key }}-${{ matrix.arch }}-${{ needs.config.outputs.build-runner }}
+      - name: Restore the inputs cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/.cache/inputs
+          key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
+          fail-on-cache-miss: true
+      - name: Build binutils, MinGW-w64 and GCC
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ${{ needs.config.outputs.run }} engines/scripts/build-toolchain.sh engines/.cache/inputs engines/build ${{ matrix.arch }}
+      - name: Keep the logs of a failed build
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mingw-gcc-${{ matrix.arch }}-logs
+          path: engines/build/work-toolchain-${{ matrix.arch }}/**/*.log
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Show the toolchain
+        run: cat engines/build/mingw-gcc-${{ matrix.arch }}/versions.txt
+      - name: Disk space
+        if: always()
+        run: df -h . | tail -1
+
   toolchain:
     name: Toolchain builds 32-bit and 64-bit programs
-    needs: [config, inputs]
+    needs: [config, inputs, mingw-gcc]
     runs-on: ${{ needs.config.outputs.build-runner }}
     timeout-minutes: 30
     steps:
@@ -118,6 +170,18 @@ jobs:
         with:
           path: engines/.cache/inputs
           key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
+          fail-on-cache-miss: true
+      - name: Restore the 32-bit toolchain
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/mingw-gcc-i686
+          key: engine-${{ needs.config.outputs.toolchain-key }}-i686-${{ needs.config.outputs.build-runner }}
+          fail-on-cache-miss: true
+      - name: Restore the 64-bit toolchain
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/mingw-gcc-x86_64
+          key: engine-${{ needs.config.outputs.toolchain-key }}-x86_64-${{ needs.config.outputs.build-runner }}
           fail-on-cache-miss: true
       - name: Build and check the test programs
         run: ${{ needs.config.outputs.run }} engines/scripts/check-toolchain.sh engines/.cache/inputs engines/build
@@ -214,7 +278,7 @@ jobs:
 
   wine:
     name: Wine (M4)
-    needs: [config, unix-libs, moltenvk]
+    needs: [config, mingw-gcc, unix-libs, moltenvk]
     runs-on: ${{ needs.config.outputs.build-runner }}
     timeout-minutes: 340
     outputs:
@@ -226,7 +290,7 @@ jobs:
         run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
       - id: key
         # Wine is built against the libraries and MoltenVK, so their scripts are part of its key.
-        run: echo "key=engine-wine-${{ needs.config.outputs.build-runner }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-unix-libs.sh', 'engines/scripts/check-unix-libs.sh', 'engines/scripts/build-moltenvk.sh', 'engines/scripts/build-wine.sh', 'engines/patches/wine/**') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=engine-wine-${{ needs.config.outputs.build-runner }}-${{ needs.config.outputs.toolchain-key }}-${{ hashFiles('engines/inputs.json', 'engines/scripts/common.sh', 'engines/scripts/build-unix-libs.sh', 'engines/scripts/check-unix-libs.sh', 'engines/scripts/build-moltenvk.sh', 'engines/scripts/build-wine.sh', 'engines/patches/wine/**') }}" >> "$GITHUB_OUTPUT"
       - name: Restore the built Wine
         id: cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -253,6 +317,20 @@ jobs:
         with:
           path: engines/build/moltenvk
           key: ${{ needs.moltenvk.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Restore the 32-bit toolchain
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/mingw-gcc-i686
+          key: engine-${{ needs.config.outputs.toolchain-key }}-i686-${{ needs.config.outputs.build-runner }}
+          fail-on-cache-miss: true
+      - name: Restore the 64-bit toolchain
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/mingw-gcc-x86_64
+          key: engine-${{ needs.config.outputs.toolchain-key }}-x86_64-${{ needs.config.outputs.build-runner }}
           fail-on-cache-miss: true
       - name: Install bison and flex
         # Natively: Homebrew doesn't run under Rosetta on Apple Silicon.
@@ -281,7 +359,7 @@ jobs:
 
   package:
     name: Package and check the engine (M4)
-    needs: [config, unix-libs, moltenvk, wine]
+    needs: [config, mingw-gcc, unix-libs, moltenvk, wine]
     runs-on: ${{ needs.config.outputs.build-runner }}
     timeout-minutes: 60
     outputs:
@@ -332,6 +410,18 @@ jobs:
         with:
           path: engines/build/wine
           key: ${{ needs.wine.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Restore the 32-bit toolchain
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/mingw-gcc-i686
+          key: engine-${{ needs.config.outputs.toolchain-key }}-i686-${{ needs.config.outputs.build-runner }}
+          fail-on-cache-miss: true
+      - name: Restore the 64-bit toolchain
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/mingw-gcc-x86_64
+          key: engine-${{ needs.config.outputs.toolchain-key }}-x86_64-${{ needs.config.outputs.build-runner }}
           fail-on-cache-miss: true
       - name: Package, then check the package
         run: ${{ needs.config.outputs.run }} engines/scripts/package-engine.sh engines/.cache/inputs engines/build "${{ steps.version.outputs.version }}"
