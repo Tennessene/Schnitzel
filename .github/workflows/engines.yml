@@ -16,16 +16,10 @@ on:
     paths:
       - "engines/**"
       - ".github/workflows/engines.yml"
-      # The program check runs SchnitzelKit through schnitzel-cli.
-      - "Sources/**"
-      - "Package.swift"
   pull_request:
     paths:
       - "engines/**"
       - ".github/workflows/engines.yml"
-      # The program check runs SchnitzelKit through schnitzel-cli.
-      - "Sources/**"
-      - "Package.swift"
   workflow_dispatch:
     inputs:
       # Releases are started by hand on a branch, not by pushing a tag: a tag's run can't read
@@ -510,49 +504,9 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # The Rockstar Games Launcher and Steam work in a Pfanne made the way the app makes one
-  # (no accounts needed). schnitzel-cli runs the app's own code: Install from File, the default
-  # components (DXMT and DXVK downloaded as in Components), New Pfanne and Run. The installers
-  # come from Rockstar's and Valve's servers and aren't pinned, so this job isn't required by
-  # the release until it has proven reliable over several runs.
-  check-programs:
-    name: Program check on ${{ matrix.machine }}
-    needs: [config, package]
-    if: ${{ !cancelled() && (inputs.engine-run || needs.package.result == 'success') }}
-    permissions:
-      contents: read
-      actions: read   # to download another run's artifacts (engine-run)
-    strategy:
-      fail-fast: false
-      matrix:
-        machine: [Intel, Apple Silicon]
-    runs-on: ${{ matrix.machine == 'Intel' && needs.config.outputs.intel-runner || needs.config.outputs.arm-runner }}
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install Rosetta 2
-        if: runner.arch == 'ARM64'
-        run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: engine
-          path: engine
-          run-id: ${{ inputs.engine-run || github.run_id }}
-          github-token: ${{ github.token }}
-      - name: Check the archive's checksum
-        run: cd engine && shasum -a 256 -c ./*.sha256
-      - name: Build schnitzel-cli
-        run: swift build -c release --product schnitzel-cli
-      - name: Rockstar Games Launcher, then Steam, in a new default Pfanne
-        run: engines/scripts/check-programs.sh "$PWD/.build/release/schnitzel-cli" engine/schnitzel-engine-*.tar.xz "$RUNNER_TEMP/pc"
-      - name: Keep the logs
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: program-check-logs-${{ runner.arch }}
-          path: ${{ runner.temp }}/pc/logs
-          retention-days: 7
-          if-no-files-found: ignore
+  # The program check (Rockstar Games Launcher, then Steam, in a default Pfanne made through
+  # schnitzel-cli) runs on Anston's Mac, not here: on the runners the Rockstar installer quits
+  # without installing anything (November 25, 2026). See engines/scripts/check-programs.sh.
 
   # Only for runs started with a release version, and only when the package check and both
   # prefix checks passed.

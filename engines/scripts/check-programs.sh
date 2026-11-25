@@ -12,6 +12,13 @@
 #   Without program names, both are checked, in the order users are told to install them:
 #   the Rockstar Games Launcher first, then Steam.
 #
+# Runs on Anston's Mac before an engine or Pfanne-setup change is released (not in CI: on the
+# GitHub runners the Rockstar installer quits without installing anything). Keep WORK_DIR's
+# path short: Wine can't load DLLs whose full path is longer than 260 characters.
+#   swift build --product schnitzel-cli
+#   engines/scripts/check-programs.sh .build/debug/schnitzel-cli ~/Downloads/schnitzel-engine-26.3.0-3.tar.xz /tmp/pc
+# It keeps everything in WORK_DIR (SCHNITZEL_DATA_DIR), never in the user's own Pfannen.
+#
 # Why through schnitzel-cli: the first version of this check set up Wine by hand and
 # passed, while a Pfanne made by the app failed. The app's default Pfanne runs from an
 # engine assembly with DXMT and has DXVK in system32; the hand-made one had neither. Now
