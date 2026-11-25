@@ -15,6 +15,8 @@
 #     in SCHNITZEL_PLAN.md);
 #   - every Mach-O file is x86_64 only, signed, and links only to the system or into the
 #     package (macho.py check);
+#   - every Windows-side (PE) file was built with the pinned MinGW-w64 GCC and nothing else
+#     (check-pe-compiler.py);
 #   - Apple's D3DMetal is not in the package (Schnitzel never distributes it);
 #   - CodeWeavers' features are compiled in: the D3DMetal hooks in winemac.so, the
 #     CX_APPLEGPTK_LIBD3DSHARED_PATH loader code in ntdll.so, and MSync in ntdll.so and
@@ -60,6 +62,10 @@ fi
 
 echo "== Mach-O files"
 python3 -I "$repo/engines/scripts/macho.py" check "$engine" || failed=1
+
+echo "== Windows-side compiler"
+gcc_version="$(python3 -I -c 'import json,sys; print(next(e["version"] for e in json.load(open(sys.argv[1]))["inputs"] if e["id"]=="gcc"))' "$repo/engines/inputs.json")"
+python3 -I "$repo/engines/scripts/check-pe-compiler.py" "$engine" "$gcc_version" || failed=1
 
 echo "== No D3DMetal"
 apple="$(find "$engine" \( -iname 'D3DMetal.framework' -o -iname 'libd3dshared.dylib' -o -iname 'D3DMetal' \) -print)"
