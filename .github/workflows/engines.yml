@@ -39,6 +39,12 @@ on:
         description: "Build on Apple Silicon under Rosetta 2 (the fallback if GitHub drops Intel runners)"
         type: boolean
         default: false
+      # For changes that only affect the checks (the check scripts, schnitzel-cli, the app's
+      # Pfanne setup): about 15 minutes instead of a build. Engine artifacts are kept 7 days.
+      engine-run:
+        description: "Only run the checks, on the engine an earlier run built (its run ID); skips every build job"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -101,6 +107,7 @@ jobs:
   inputs:
     name: Fetch and verify inputs
     needs: [config, validate]
+    if: ${{ !inputs.engine-run }}
     runs-on: ${{ needs.config.outputs.build-runner }}
     timeout-minutes: 60
     steps:
@@ -138,15 +145,24 @@ jobs:
         with:
           path: engines/build/mingw-gcc-${{ matrix.arch }}
           key: engine-${{ needs.config.outputs.toolchain-key }}-${{ matrix.arch }}-${{ needs.config.outputs.build-runner }}
-      - name: Restore the inputs cache
+      # A damaged download counts as a miss (seen November 25, 2026: "Restored data doesn't
+      # match checksum"), which would start a long rebuild; try once more first.
+      - name: Retry restoring the built toolchain
+        id: retry
         if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/mingw-gcc-${{ matrix.arch }}
+          key: engine-${{ needs.config.outputs.toolchain-key }}-${{ matrix.arch }}-${{ needs.config.outputs.build-runner }}
+      - name: Restore the inputs cache
+        if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: engines/.cache/inputs
           key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
           fail-on-cache-miss: true
       - name: Build binutils, MinGW-w64 and GCC
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
         run: ${{ needs.config.outputs.run }} engines/scripts/build-toolchain.sh engines/.cache/inputs engines/build ${{ matrix.arch }}
       - name: Keep the logs of a failed build
         if: failure()
@@ -304,36 +320,45 @@ jobs:
         with:
           path: engines/build/wine
           key: ${{ steps.key.outputs.key }}
-      - name: Restore the inputs cache
+      # A damaged download counts as a miss (seen November 25, 2026: "Restored data doesn't
+      # match checksum"), which would start a long rebuild; try once more first.
+      - name: Retry restoring the built Wine
+        id: retry
         if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: engines/build/wine
+          key: ${{ steps.key.outputs.key }}
+      - name: Restore the inputs cache
+        if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: engines/.cache/inputs
           key: engine-inputs-${{ hashFiles('engines/inputs.json') }}
           fail-on-cache-miss: true
       - name: Restore the built libraries
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: engines/build/deps
           key: ${{ needs.unix-libs.outputs.key }}
           fail-on-cache-miss: true
       - name: Restore the built MoltenVK
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: engines/build/moltenvk
           key: ${{ needs.moltenvk.outputs.key }}
           fail-on-cache-miss: true
       - name: Restore the 32-bit toolchain
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: engines/build/mingw-gcc-i686
           key: engine-${{ needs.config.outputs.toolchain-key }}-i686-${{ needs.config.outputs.build-runner }}
           fail-on-cache-miss: true
       - name: Restore the 64-bit toolchain
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: engines/build/mingw-gcc-x86_64
@@ -341,13 +366,13 @@ jobs:
           fail-on-cache-miss: true
       - name: Install bison and flex
         # Natively: Homebrew doesn't run under Rosetta on Apple Silicon.
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: brew list bison flex > /dev/null 2>&1 || brew install bison flex
       - name: Build Wine
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true' && steps.retry.outputs.cache-hit != 'true'
         run: ${{ needs.config.outputs.run }} engines/scripts/build-wine.sh engines/.cache/inputs engines/build
       - name: Keep the logs of a failed build
         if: failure()
@@ -445,6 +470,10 @@ jobs:
   check-prefix:
     name: Prefix check on ${{ matrix.machine }}
     needs: [config, toolchain, package]
+    if: ${{ !cancelled() && (inputs.engine-run || (needs.toolchain.result == 'success' && needs.package.result == 'success')) }}
+    permissions:
+      contents: read
+      actions: read   # to download another run's artifacts (engine-run)
     strategy:
       fail-fast: false
       matrix:
@@ -460,14 +489,18 @@ jobs:
         with:
           name: engine
           path: engine
+          run-id: ${{ inputs.engine-run || github.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: test-programs
           path: test-programs
+          run-id: ${{ inputs.engine-run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Check the archive's checksum
         run: cd engine && shasum -a 256 -c ./*.sha256
       - name: Create a prefix and run Windows programs
-        run: engines/scripts/check-prefix.sh engine/schnitzel-engine-${{ needs.package.outputs.version }}.tar.xz test-programs "$RUNNER_TEMP/prefix-check"
+        run: engines/scripts/check-prefix.sh engine/schnitzel-engine-*.tar.xz test-programs "$RUNNER_TEMP/prefix-check"
       - name: Keep the logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -485,6 +518,10 @@ jobs:
   check-programs:
     name: Program check on ${{ matrix.machine }}
     needs: [config, package]
+    if: ${{ !cancelled() && (inputs.engine-run || needs.package.result == 'success') }}
+    permissions:
+      contents: read
+      actions: read   # to download another run's artifacts (engine-run)
     strategy:
       fail-fast: false
       matrix:
@@ -500,12 +537,14 @@ jobs:
         with:
           name: engine
           path: engine
+          run-id: ${{ inputs.engine-run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Check the archive's checksum
         run: cd engine && shasum -a 256 -c ./*.sha256
       - name: Build schnitzel-cli
         run: swift build -c release --product schnitzel-cli
       - name: Rockstar Games Launcher, then Steam, in a new default Pfanne
-        run: engines/scripts/check-programs.sh "$PWD/.build/release/schnitzel-cli" "engine/schnitzel-engine-${{ needs.package.outputs.version }}.tar.xz" "$RUNNER_TEMP/pc"
+        run: engines/scripts/check-programs.sh "$PWD/.build/release/schnitzel-cli" engine/schnitzel-engine-*.tar.xz "$RUNNER_TEMP/pc"
       - name: Keep the logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
