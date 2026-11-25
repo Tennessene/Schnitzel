@@ -16,10 +16,16 @@ on:
     paths:
       - "engines/**"
       - ".github/workflows/engines.yml"
+      # The program check runs SchnitzelKit through schnitzel-cli.
+      - "Sources/**"
+      - "Package.swift"
   pull_request:
     paths:
       - "engines/**"
       - ".github/workflows/engines.yml"
+      # The program check runs SchnitzelKit through schnitzel-cli.
+      - "Sources/**"
+      - "Package.swift"
   workflow_dispatch:
     inputs:
       # Releases are started by hand on a branch, not by pushing a tag: a tag's run can't read
@@ -471,18 +477,20 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # Steam reaches its servers with this engine (no account needed). Steam's installer comes
-  # from Valve's CDN and isn't pinned, so this job isn't required by the release until it has
-  # proven reliable over several runs.
-  check-steam:
-    name: Steam check on ${{ matrix.machine }}
+  # The Rockstar Games Launcher and Steam work in a Pfanne made the way the app makes one
+  # (no accounts needed). schnitzel-cli runs the app's own code: Install from File, the default
+  # components (DXMT and DXVK downloaded as in Components), New Pfanne and Run. The installers
+  # come from Rockstar's and Valve's servers and aren't pinned, so this job isn't required by
+  # the release until it has proven reliable over several runs.
+  check-programs:
+    name: Program check on ${{ matrix.machine }}
     needs: [config, package]
     strategy:
       fail-fast: false
       matrix:
         machine: [Intel, Apple Silicon]
     runs-on: ${{ matrix.machine == 'Intel' && needs.config.outputs.intel-runner || needs.config.outputs.arm-runner }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rosetta 2
@@ -494,14 +502,16 @@ jobs:
           path: engine
       - name: Check the archive's checksum
         run: cd engine && shasum -a 256 -c ./*.sha256
-      - name: Install Steam and wait for it to connect
-        run: engines/scripts/check-steam.sh engine/schnitzel-engine-${{ needs.package.outputs.version }}.tar.xz "$RUNNER_TEMP/steam-check"
+      - name: Build schnitzel-cli
+        run: swift build -c release --product schnitzel-cli
+      - name: Rockstar Games Launcher, then Steam, in a new default Pfanne
+        run: engines/scripts/check-programs.sh "$PWD/.build/release/schnitzel-cli" "engine/schnitzel-engine-${{ needs.package.outputs.version }}.tar.xz" "$RUNNER_TEMP/pc"
       - name: Keep the logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: steam-check-logs-${{ runner.arch }}
-          path: ${{ runner.temp }}/steam-check/logs
+          name: program-check-logs-${{ runner.arch }}
+          path: ${{ runner.temp }}/pc/logs
           retention-days: 7
           if-no-files-found: ignore
 
