@@ -57,11 +57,11 @@ jobs:
       toolchain-key: ${{ steps.toolchain.outputs.key }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The MinGW-w64 GCC toolchain only depends on its own pins and build script, so a change
-      # to another input (a new CrossOver drop, say) doesn't rebuild the compiler.
+      # The MinGW-w64 GCC toolchain only depends on its own pins, build script and GCC patches,
+      # so a change to another input (a new CrossOver drop, say) doesn't rebuild the compiler.
       - id: toolchain
         run: |
-          hash="$(python3 -c 'import json,hashlib; d=json.load(open("engines/inputs.json"))["inputs"]; ids=("binutils","gcc","mingw-w64","mpfr","mpc","gmp"); print(hashlib.sha256(json.dumps(sorted([(e["id"],e["sha256"]) for e in d if e["id"] in ids])).encode() + open("engines/scripts/build-toolchain.sh","rb").read() + open("engines/scripts/common.sh","rb").read()).hexdigest()[:20])')"
+          hash="$(python3 -c 'import glob,json,hashlib; d=json.load(open("engines/inputs.json"))["inputs"]; ids=("binutils","gcc","mingw-w64","mpfr","mpc","gmp"); print(hashlib.sha256(json.dumps(sorted([(e["id"],e["sha256"]) for e in d if e["id"] in ids])).encode() + open("engines/scripts/build-toolchain.sh","rb").read() + open("engines/scripts/common.sh","rb").read() + b"".join(open(f,"rb").read() for f in sorted(glob.glob("engines/patches/gcc/*.patch")))).hexdigest()[:20])')"
           echo "key=mingw-gcc-$hash" >> "$GITHUB_OUTPUT"
           echo "Toolchain cache key: mingw-gcc-$hash"
       - id: labels

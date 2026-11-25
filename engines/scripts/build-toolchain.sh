@@ -71,6 +71,17 @@ unpack "$(input_archive "$inputs" gcc)" "$work/gcc"
 unpack "$(input_archive "$inputs" gmp)" "$work/gcc/gmp"
 unpack "$(input_archive "$inputs" mpfr)" "$work/gcc/mpfr"
 unpack "$(input_archive "$inputs" mpc)" "$work/gcc/mpc"
+# engines/patches/gcc/*.patch, in file name order: fixes for building GCC 13.2.0 on today's
+# macOS. They change how the compiler itself is compiled, not the code it generates. Recorded
+# in the toolchain's patches.txt.
+: > "$prefix/patches.txt"
+for patch in "$ENGINE_REPO"/engines/patches/gcc/*.patch; do
+    [[ -e "$patch" ]] || continue
+    (cd "$work/gcc" && patch -p1 --forward --batch --quiet < "$patch") \
+        || { echo "error: $(basename "$patch") doesn't apply" >&2; exit 1; }
+    echo "gcc $(basename "$patch") $(shasum -a 256 "$patch" | awk '{print $1}')" >> "$prefix/patches.txt"
+    echo "ok      $(basename "$patch")"
+done
 mkdir -p "$work/gcc-build"
 (cd "$work/gcc-build" && "$work/gcc/configure" --prefix="$prefix" --target="$target" \
     --enable-languages=c,c++ --disable-multilib --disable-nls --disable-werror \
@@ -81,7 +92,10 @@ mkdir -p "$work/gcc-build"
 
 step "MinGW-w64 runtime"
 mkdir -p "$work/crt-build"
-(cd "$work/crt-build" && "$work/mingw-w64/mingw-w64-crt/configure" --prefix="$prefix/$target" \
+# The runtime is Windows code: name the new MinGW GCC, since CC=clang (exported above for the
+# Mac-side tools) would otherwise win over --host.
+(cd "$work/crt-build" && CC="$target-gcc" CXX="$target-g++" \
+    "$work/mingw-w64/mingw-w64-crt/configure" --prefix="$prefix/$target" \
     --host="$target" "${crt_flags[@]}" > configure.log \
     && make -j"$JOBS" > make.log && make install > install.log) \
     || { tail -40 "$work/crt-build/"*.log >&2; exit 1; }

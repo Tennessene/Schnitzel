@@ -1,0 +1,110 @@
+GCC 13.2.0: include the C++ standard headers before safe-ctype.h
+
+GCC's own source defines toupper, tolower, isalpha and the other <ctype.h> names as macros
+(include/safe-ctype.h) and then includes C++ headers such as <map> and <vector>. The libc++ in
+the macOS 26 SDK declares member functions with those names, so building GCC on a Mac fails
+(GCC PR 111632). GCC 13.3 fixed it the same way: move the C++ standard headers in front of
+safe-ctype.h. This patch also moves <memory>, <mutex> and <sstream>.
+
+It only changes how the compiler program itself is compiled on the Mac, not the code GCC
+generates for Windows. Schnitzel keeps GCC 13.2.0 because CrossOver 26.3's Wine was built
+with it (SCHNITZEL_PLAN.md, "Toolchain").
+
+This file is part of Schnitzel's build; the change itself is to GCC (GPL-3.0-or-later).
+
+--- a/gcc/system.h
++++ b/gcc/system.h
+@@ -194,29 +194,16 @@
+ #undef fread_unlocked
+ #undef fwrite_unlocked
+ 
+-/* Include <string> before "safe-ctype.h" to avoid GCC poisoning
+-   the ctype macros through safe-ctype.h */
++/* Include C++ standard headers before "safe-ctype.h" to avoid GCC
++   poisoning the ctype macros through safe-ctype.h (GCC PR 111632: libc++
++   declares member functions named toupper, tolower, isalpha, ...).  The
++   headers that used to come after it (<memory>, <mutex>, <sstream>) are here
++   too; this is also before "abort" is redefined as "fancy_abort" below.  */
+ 
+ #ifdef __cplusplus
+ #ifdef INCLUDE_STRING
+ # include <string>
+ #endif
+-#endif
+-
+-/* There are an extraordinary number of issues with <ctype.h>.
+-   The last straw is that it varies with the locale.  Use libiberty's
+-   replacement instead.  */
+-#include "safe-ctype.h"
+-
+-#include <sys/types.h>
+-
+-#include <errno.h>
+-
+-#if !defined (errno) && defined (HAVE_DECL_ERRNO) && !HAVE_DECL_ERRNO
+-extern int errno;
+-#endif
+-
+-#ifdef __cplusplus
+ #if defined (INCLUDE_ALGORITHM) || !defined (HAVE_SWAP_IN_UTILITY)
+ # include <algorithm>
+ #endif
+@@ -237,6 +224,15 @@
+ #endif
+ #ifdef INCLUDE_FUNCTIONAL
+ # include <functional>
++#endif
++#ifdef INCLUDE_MEMORY
++# include <memory>
++#endif
++#ifdef INCLUDE_MUTEX
++# include <mutex>
++#endif
++#ifdef INCLUDE_SSTREAM
++# include <sstream>
+ #endif
+ # include <cstring>
+ # include <initializer_list>
+@@ -245,6 +241,19 @@
+ # include <type_traits>
+ #endif
+ 
++/* There are an extraordinary number of issues with <ctype.h>.
++   The last straw is that it varies with the locale.  Use libiberty's
++   replacement instead.  */
++#include "safe-ctype.h"
++
++#include <sys/types.h>
++
++#include <errno.h>
++
++#if !defined (errno) && defined (HAVE_DECL_ERRNO) && !HAVE_DECL_ERRNO
++extern int errno;
++#endif
++
+ /* Some of glibc's string inlines cause warnings.  Plus we'd rather
+    rely on (and therefore test) GCC's string builtins.  */
+ #define __NO_STRING_INLINES
+@@ -738,22 +747,6 @@
+ 
+ #define LIKELY(x) (__builtin_expect ((x), 1))
+ #define UNLIKELY(x) (__builtin_expect ((x), 0))
+-
+-/* Some of the headers included by <memory> can use "abort" within a
+-   namespace, e.g. "_VSTD::abort();", which fails after we use the
+-   preprocessor to redefine "abort" as "fancy_abort" below.  */
+-
+-#ifdef INCLUDE_MEMORY
+-# include <memory>
+-#endif
+-
+-#ifdef INCLUDE_MUTEX
+-# include <mutex>
+-#endif
+-
+-#ifdef INCLUDE_SSTREAM
+-# include <sstream>
+-#endif
+ 
+ #ifdef INCLUDE_MALLOC_H
+ #if defined(HAVE_MALLINFO) || defined(HAVE_MALLINFO2)
