@@ -18,7 +18,7 @@ Changes are made in small steps on feature branches, compile-checked and unit-te
 - **Never bundle D3DMetal.** Apple's license forbids redistributing it. Schnitzel detects a D3DMetal the user installed from Apple's Game Porting Toolkit and links to Apple's download page.
 - **Native macOS look.** SwiftUI, system colors, SF Symbols, standard sidebar. Propose the approach before rewriting anything big.
 - **Small steps.** One feature per branch, small commits, and each step must build and run before moving on. Ask before large refactors or deleting existing features.
-- **Terminology:** a bottle/wrapper is a **Pfanne** (plural **Pfannen**) everywhere in the UI, e.g. "Neue Pfanne", "GTA V Pfanne". Internal code names can stay whatever is clearest.
+- **Terminology:** a bottle/wrapper is a **Pfanne** (plural **Pfannen**) everywhere in the UI, e.g. "New Pfanne", "GTA V Pfanne". Internal code names can stay whatever is clearest.
 - **This plan is the single source of truth.** `docs/HANDOFF.md` is only a temporary note for switching to a new Claude Code session: it is rewritten from scratch at each switch, and the new session deletes it once it has read it and confirmed this plan is up to date. If the handoff ever disagrees with this plan, the plan wins.
 
 ---
@@ -39,10 +39,10 @@ Decision: build Schnitzel as a new app. Copy these WhiskyKit parts: process and 
 - **Build:** a Swift package (`Package.swift`) with a `SchnitzelKit` library (core logic, no UI) and a `Schnitzel` app target (SwiftUI). A script (`scripts/build-app.sh`) builds it with `swift build` and wraps it into `Schnitzel.app`. Full Xcode is not required, so every step can be compile-checked.
 - **Pfanne on disk:** a folder under `~/Library/Application Support/Schnitzel/Pfannen/<name>/` holding a `Pfanne.plist` (settings and pinned component versions) and the Wine prefix.
 - **Components:** Wine engines, DXVK, MoltenVK and DXMT live versioned side by side under `~/Library/Application Support/Schnitzel/Components/<component>/<version>/`, so Pfannen can pin a version and roll back. D3DMetal is only detected from the user's own Game Porting Toolkit install, never bundled.
-- **Graphics layers:** designed so Phase 3 per-game choices work. Wine's `DllOverrides` can only choose between a DLL's *builtin* version (shipped inside the engine) and its *native* version (a file in the prefix's `system32`), never between two files of the same kind. So each Pfanne has two slots:
+- **Graphics layers:** designed so Phase 6 per-game choices work. Wine's `DllOverrides` can only choose between a DLL's *builtin* version (shipped inside the engine) and its *native* version (a file in the prefix's `system32`), never between two files of the same kind. So each Pfanne has two slots:
   - **Builtin slot, one provider per Pfanne.** D3DMetal and DXMT both work by replacing Wine's own builtin `d3d11`/`dxgi` (and for D3DMetal `d3d12`), so only one of them can be active in a Pfanne. The one exception: programs with the `usesWineGraphics` program setting get Wine's own DLLs, which the assembly keeps in `lib/schnitzel-wine-graphics` (Wine patch 0002; the Rockstar Games Launcher by default, as CrossOver does). Schnitzel builds an *engine assembly* for each combination it needs: an APFS clone (copy-on-write, so almost no extra disk space) of the pinned engine with the provider's files laid over it. Assemblies are cached under `Components/Assemblies/` and rebuilt if missing. Without an overlay, the builtin slot is whatever the engine ships (normally WineD3D).
   - **Native slot: DXVK.** DXVK's DLLs are copied into the Pfanne's `system32` and `syswow64`.
-  - **Auto** (the default) fills the builtin slot with D3DMetal if it's imported, otherwise WineD3D. **Never DXMT** (decided by Anston, November 25, 2026): the builtin slot applies to every program in the Pfanne, launchers included (apart from `usesWineGraphics` programs), and DXMT's d3d11 lacks `SwapDeviceContextState`, which stops the Rockstar Games Launcher (see "Rockstar Games Launcher with 26.3.0-3" under Phase 4). DXMT is used only when chosen for a Pfanne, later per game through recipes.
+  - **Auto** (the default) fills the builtin slot with D3DMetal if it's imported, otherwise WineD3D. **Never DXMT** (decided by Anston, November 25, 2026): the builtin slot applies to every program in the Pfanne, launchers included (apart from `usesWineGraphics` programs), and DXMT's d3d11 lacks `SwapDeviceContextState`, which stops the Rockstar Games Launcher (see "Rockstar Games Launcher with 26.3.0-3" under "Findings and reference"). DXMT is used only when chosen for a Pfanne, later per game through recipes.
   - **Choosing per game** means choosing native or builtin per DLL, which `AppDefaults\<game>.exe\DllOverrides` can do. So per game, a Pfanne offers its builtin provider or DXVK. `d3d9` has no Metal provider, so builtin `d3d9` is always WineD3D.
   - Schnitzel writes explicit Pfanne-wide `DllOverrides` for `d3d9`, `d3d10core`, `d3d11`, `d3d12` and `dxgi`, so nothing depends on Wine's default load order. It never sets a global `WINEDLLOVERRIDES` for those DLLs, because the env var would override the per-game registry entries.
 - **Env vars** (MSync, ESync, Metal HUD, D3DMetal options) are set per Pfanne when Schnitzel launches Wine.
@@ -52,12 +52,12 @@ Decision: build Schnitzel as a new app. Copy these WhiskyKit parts: process and 
 ## Order of work
 
 1. **Phase 1:** skeleton and rebrand.
-2. **Engine and Pfanne core.**
-3. **Own engine builds.**
-4. **Phase 2:** new main interface.
-5. **Phase 4:** game presets (the Install screen needs the recipe format).
-6. **Phase 3:** per-game graphics auto-detection.
-7. **Phase 5:** the rest of the component updater.
+2. **Phase 2:** engine and Pfanne core.
+3. **Phase 3:** own engine builds.
+4. **Phase 4:** new main interface.
+5. **Phase 5:** game presets (the Install screen needs the recipe format).
+6. **Phase 6:** per-game graphics auto-detection.
+7. **Phase 7:** the rest of the component updater.
 
 Each phase is its own branch (`phase-1-rebrand`, and so on) with small commits.
 
@@ -71,7 +71,9 @@ Each phase is its own branch (`phase-1-rebrand`, and so on) with small commits.
 - New placeholder app icon (original design; schnitzel/pan themed is fine).
 - `LICENSE` (GPL-3.0) and a README: what Schnitzel is, how to build it, credits to Sikarugir/Kegworks/Wineskin/Whisky/Wine/Gcenx, license.
 
-## Engine and Pfanne core
+Status: done, merged into `main`.
+
+## Phase 2: Engine and Pfanne core
 
 - Copy the selected WhiskyKit files into `SchnitzelKit` with their headers and a change note.
 - Download Wine engines into the versioned component store, checking each download against the SHA-256 digest GitHub publishes for it. Each Pfanne pins its engine. Switching keeps the previous version for one-click rollback.
@@ -83,12 +85,12 @@ Each phase is its own branch (`phase-1-rebrand`, and so on) with small commits.
 - Component sources are generic: one default source per kind (`ComponentSource.defaultSourceIDs`) decides the "Recommended" label and what new Pfannen use; each installed component records its source; release lists are read across several pages, optionally filtered by tag prefix; installed versions are named `<source prefix>-<version>`, so two sources can never clash.
 - Create a Pfanne (Wine prefix, default Windows 10 64-bit), run an `.exe` in it, open C: in Finder, write a log per run.
 - Graphics layer setup per Pfanne as described under Architecture.
-- A minimal working UI (list, create, run, open C:, engine and graphics choice) so each piece can be tested. Phase 2 replaces it with the real design.
+- A minimal working UI (list, create, run, open C:, engine and graphics choice) so each piece can be tested. Phase 4 replaces it with the real design.
 - Checked with the real downloads (November 2026): `WS12WineSikarugir11.0_1` unpacks to `wswine.bundle/`, contains DXMT and no D3DMetal or MoltenVK, and loads its runtime libraries from outside the engine (hence the libraries component).
 
-Status (November 2026): built on branch `engine-pfanne-core`, with unit tests for everything that doesn't need a real Wine run, plus opt-in end-to-end tests with real engines. First test on Apple Silicon found that Sikarugir's `WS12WineSikarugir11.0_1` can't start Windows processes outside Sikarugir (Sikarugir-App/Sikarugir#295; Sikarugir's maintainer says its engines only run inside Sikarugir), so `WS12WineSikarugir10.0_8` (Wine 10) is the temporary reference instead. This is one more reason to build Schnitzel's own engine next.
+Status: done and merged into `main` (merge `a8d1f98`, November 2026). Built on branch `engine-pfanne-core`, with unit tests for everything that doesn't need a real Wine run, plus opt-in end-to-end tests with real engines. First test on Apple Silicon found that Sikarugir's `WS12WineSikarugir11.0_1` can't start Windows processes outside Sikarugir (Sikarugir-App/Sikarugir#295; Sikarugir's maintainer says its engines only run inside Sikarugir), so `WS12WineSikarugir10.0_8` (Wine 10) is the temporary reference instead. This is one more reason to build Schnitzel's own engine next.
 
-## Own engine builds
+## Phase 3: Own engine builds
 
 Goal: Schnitzel's default engine is Wine compiled from CodeWeavers' CrossOver source drops (`codeweavers.com/crossover/source`), built in the open with GitHub Actions and published as Schnitzel engine releases.
 
@@ -124,7 +126,7 @@ What CrossOver.app itself contains (CrossOver 26.3.0.39832, inspected by file na
   - Interface and bottle management only: the CrossOver app, its Python and Sparkle frameworks, the `cx*` tools (`cxbottle`, `cxstart`, `cxmenu`, `cxassoc`, `cxinstallfonts`, `cxwget`, `cxkeepalive`, …), Perl modules, bottle templates and translations.
   - Stand-ins for Windows and Office helper programs (`ctfmon`, `findfast`, `mosearch`, `qttask`, `pstores`, `imjpmig`, `ddhelp`, `maildoff`, `mdm`, `autorun`, `assocscan`, `extract`, `cxdummy`).
   - `unrar` (freeware, not open source).
-- **Schnitzel equivalents to build ourselves (open source):** the environment setup the `wine` launcher does (Schnitzel's `WineRuntime`), and a per-game settings database (Schnitzel's Phase 4 recipes). Two variables from the source drop are already used: `CX_APPLEGPTK_LIBD3DSHARED_PATH` (where D3DMetal's library is) and `CX_ACTIVE_GRAPHICS_BACKEND`.
+- **Schnitzel equivalents to build ourselves (open source):** the environment setup the `wine` launcher does (Schnitzel's `WineRuntime`), and a per-game settings database (Schnitzel's Phase 5 recipes). Two variables from the source drop are already used: `CX_APPLEGPTK_LIBD3DSHARED_PATH` (where D3DMetal's library is) and `CX_ACTIVE_GRAPHICS_BACKEND`.
 - **Worth testing:** CrossOver keeps each graphics layer in its own folder instead of copying it into the engine. Wine's `WINEDLLPATH` can point at such a folder, which would be simpler than Schnitzel's engine assemblies; it is still one layer per Pfanne, because it's an environment variable.
 
 Plan:
@@ -195,9 +197,9 @@ Build plan (written November 2026, before the build work starts):
     - At runtime, `wineboot` with `WINEMSYNC=1` must print `msync: up and running`, and the server must start its MSync Mach port.
     - A build missing any of these fails.
   - **How MSync is turned on:** it's off unless the environment variable `WINEMSYNC=1` is set for every Wine process and for `wineserver`. A Wine process that doesn't match the server's setting refuses to run (the "Server is running with WINEMSYNC" message). Schnitzel sets it in `PfanneSettings.environmentVariables` when a Pfanne's Sync setting is MSync, which is the default. `WineRuntime` passes the same environment to `wine` and `wineserver`. Schnitzel also sets `WINEESYNC=1` alongside it, because D3DMetal checks for ESync.
-- **Toolchain switch to GCC (done, November 25, 2026, run 45531786564):** the pinned toolchain builds on `macos-26-intel` (i686 in 44 min, x86_64 in 56 min, then cached); Wine with GCC takes about 1 h 45 min (Clang: 43 min). The compiler check passes (1575 PE files: every compiled one "GCC: (GNU) 13.2.0", 34 = 17 modules × 2 architectures with no code, no GCC or MinGW runtime DLLs). The prefix check passes on both runners, and the Steam check (job `check-steam`, Steam connects to a Connection Manager, no account) passes on Intel (143 s) and Apple Silicon (209 s). It isn't required by the release yet: Steam's installer isn't pinned, so it should pass over a few more runs first. Fixes needed for GCC 13.2 on the macOS 26 SDK: no manuals (`MAKEINFO=true`, no Texinfo on the runners), `engines/patches/gcc/0001` (C++ headers before `safe-ctype.h`, GCC PR 111632, fixed the same way in 13.3; only changes how the compiler itself is compiled), `--disable-libcc1` (same clash, plugin not needed), and the MinGW runtime configured with `CC=<target>-gcc` (the exported `CC=clang` won over `--host`). Possible later improvement: ccache for the Wine build, so a small patch doesn't recompile all of Wine.
+- **Toolchain switch to GCC (done, November 25, 2026, run 45531786564):** the pinned toolchain builds on `macos-26-intel` (i686 in 44 min, x86_64 in 56 min, then cached); Wine with GCC takes about 1 h 45 min (Clang: 43 min). The compiler check passes (1575 PE files: every compiled one "GCC: (GNU) 13.2.0", 34 = 17 modules × 2 architectures with no code, no GCC or MinGW runtime DLLs). The prefix check passes on both runners. The Steam check that ran in CI then (`check-steam.sh`, Intel 143 s, Apple Silicon 209 s) has been replaced by `check-programs.sh`, which runs on Anston's Mac (see "Program check" below). Fixes needed for GCC 13.2 on the macOS 26 SDK: no manuals (`MAKEINFO=true`, no Texinfo on the runners), `engines/patches/gcc/0001` (C++ headers before `safe-ctype.h`, GCC PR 111632, fixed the same way in 13.3; only changes how the compiler itself is compiled), `--disable-libcc1` (same clash, plugin not needed), and the MinGW runtime configured with `CC=<target>-gcc` (the exported `CC=clang` won over `--host`). ccache for the Wine build was added on November 25, 2026 (`SCHNITZEL_CCACHE=1` in CI; the first run with it fills the cache, later runs after a small patch only recompile what changed).
 - **Program check (November 25, 2026):** `check-steam.sh` set up Wine by hand and passed while a Pfanne made by the app failed, because the app's default Pfanne ran from a DXMT assembly with DXVK in system32. It is replaced by `check-programs.sh`, which drives the app's own code through `schnitzel-cli` (a SchnitzelKit command-line target: Install from File, the default components with DXMT and DXVK downloaded as in Components, New Pfanne, Run; `SCHNITZEL_DATA_DIR` keeps its data separate). In a new default Pfanne it runs the Rockstar Games Launcher's silent install (passes when Social Club is set up), then Steam's installer and first start (passes when Steam connects to a Connection Manager), in the order users are told. **It runs on Anston's Mac, not in CI** (Anston's decision, November 25, 2026, until he says otherwise): on the GitHub runners the Rockstar installer quits within seconds without installing anything (no folder, no log), while it works every time on his Mac; the runners have no real GPU, a data-center network and a fresh unattended account. Steam passed there on both runners (109 s Intel, 184 s Apple Silicon). **Silent install, found November 25, 2026:** the Rockstar installer matches `/s` (silent) and `/f` (force) anywhere in its command line, but without `/f` it only stays silent when `HKLM\SOFTWARE\Rockstar Games\Launcher` already exists. So `/silent` alone showed the setup wizard on every fresh Pfanne ("Normal install mode" in `ProgramData/Rockstar Games/Launcher/installer_log.txt`), and the earlier passing Rockstar checks on Anston's Mac passed because he clicked through it. With `/silent /forceinstall` it installs without a window in about 5 s but doesn't start the launcher ("Run on close: FALSE"), so the check starts `Launcher.exe` itself, which then installs Social Club (50 s, WineD3D, nobody touching anything). The check now fails if the installer logs "Normal install mode". This is probably also why the installer "quit" on the GitHub runners (a wizard with no one and likely no usable window session), not yet confirmed there. Run it before releasing an engine or a change to Pfanne setup (usage in the script). The CI attempt still found a real bug: Schnitzel refused to create Pfannen on Intel Macs because Rosetta wasn't installed (fixed: only Apple Silicon needs it). CI keeps the builds, the package check and the prefix check; manual `engine-run=<run ID>` runs only the prefix check on an earlier run's engine (about 5 minutes), and damaged cache downloads are retried once before a rebuild.
-- **M5:** draft releases, the `schnitzel-engines` source, engines with their own libraries, and **Install from file…** with SHA-256 checks and duplicate matching (see "In Schnitzel" above). Done when a release run has created a draft release whose engine installs through Install from file. *Done (November 2026): run #13 created the draft "Schnitzel engine 26.3.0-1" (engine 162 MB, SHA-256 `1af2e7fa…44f9`); its archive passed the SHA256SUMS check and installed through the real Install from file code (opt-in test `installsARealEngineArchive`, run with `SCHNITZEL_ENGINE_ARCHIVE=<path>`). That build couldn't show Steam's window (see "What CrossOver does for Steam" under Phase 4). Release run #15 then created the draft "Schnitzel engine 26.3.0-2" (SHA-256 `0f30da5d…2ac1`) with Wine patch 0001 and the cached libraries and MoltenVK. On Anston's Mac, Steam's sign-in window shows with that engine (tested with a scratch prefix). Awaiting Anston's test in a Pfanne before he publishes it; the 26.3.0-1 draft is superseded.*
+- **M5:** draft releases, the `schnitzel-engines` source, engines with their own libraries, and **Install from file…** with SHA-256 checks and duplicate matching (see "In Schnitzel" above). Done when a release run has created a draft release whose engine installs through Install from file. *Done (November 2026): run #13 created the draft "Schnitzel engine 26.3.0-1" (engine 162 MB, SHA-256 `1af2e7fa…44f9`); its archive passed the SHA256SUMS check and installed through the real Install from file code (opt-in test `installsARealEngineArchive`, run with `SCHNITZEL_ENGINE_ARCHIVE=<path>`). 26.3.0-1 couldn't show Steam's window and 26.3.0-2 (Clang-built) kept Steam from signing in; both drafts are deleted. **Now (November 25, 2026):** the draft "Schnitzel engine 26.3.0-3" is GCC-built, passes CI (package, compiler and prefix checks) and has Wine patch 0001. Anston's tests: with WineD3D, Steam and the Rockstar Games Launcher work, and the program check passes untouched; with D3DMetal 3.0, Steam works but the Rockstar Games Launcher fails to initialize (see "Rockstar Games Launcher with D3DMetal 3.0" under "Findings and reference"). The fix needs Wine patch 0002, so the next draft is 26.3.0-4. Engine releases stay drafts; Sikarugir 10.0_8 stays Recommended until M7 is done and Anston has tested.*
 - **M6:** vkd3d and DXVK.
 - **M7:** GLib and GStreamer.
 - **Future milestone, ARM64 engine (after the CrossOver 27 source drop):** Apple is limiting Rosetta 2 starting with macOS 28 (2027), and it's unclear whether Wine will still be allowed to use it. CodeWeavers has announced that CrossOver 27 will have an ARM64 build that runs without Rosetta. When the CrossOver 27 source drop is published, check how its ARM64 build works: which x86 emulator it uses for Windows code, and how graphics layers like D3DMetal, DXVK and DXMT work on ARM64. Then add an ARM64 engine build that follows it, the same way Schnitzel follows 26.3.0 now. Until then, stay on x86_64 with Rosetta.
@@ -255,7 +257,7 @@ Required check before any engine release is published:
 - It runs on an Intel runner and on an Apple Silicon runner with Rosetta, because Schnitzel's users are on Apple Silicon.
 - The release job depends on these checks. A build that fails any of them is never published; it stays a workflow artifact for debugging.
 
-## Phase 2: New main interface
+## Phase 4: New main interface
 
 - **Sidebar:** list of Pfannen, plus "Install" at the bottom.
 - **Pfanne detail view:** installed programs/games with launch buttons, and a settings section:
@@ -264,10 +266,21 @@ Required check before any engine release is published:
   - Sync: MSync / ESync / off
   - Toggles: DLSS, High Resolution Mode
   - Wine engine version (pinnable)
-- **Install screen:** search box, a list of presets (Phase 4) with Schnitzel's own rating labels, and "Install something not listed" (pick an .exe or installer).
+- **Install screen:** search box, a list of presets (Phase 5) with Schnitzel's own rating labels, and "Install something not listed" (pick an .exe or installer).
 - "Run command / open .exe in this Pfanne", "Open C: drive in Finder", "Winetricks".
 
-## Phase 3: Per-game graphics auto-detection
+## Phase 5: Game presets (recipe files)
+
+- A simple, documented recipe format (JSON or YAML), one file per game or launcher, in a `recipes/` folder so the community can add more by pull request.
+- Each recipe has: name, rating, Windows version, graphics layer, sync, toggles, dependencies (Winetricks verbs), launcher(s) to install, notes shown to the user, and the date and component versions it was tested with.
+- First recipes:
+  - **GTA V Legacy (Steam):** Windows 10 64-bit; graphics D3DMetal; MSync on; DLSS off; High Resolution Mode off; install Rockstar Games Launcher **and** Steam in the **same Pfanne**; note: in the Rockstar Launcher go to Settings → GTA V and disable BattlEye (story mode only, GTA Online does not work); install "Grand Theft Auto V Legacy", not Enhanced (Enhanced currently needs a DirectX 12 feature D3DMetal lacks).
+  - **Halo: The Master Chief Collection (Steam):** Windows 10 64-bit; graphics D3DMetal (fallback DXVK); choose "Play with anti-cheat disabled" at launch (campaign and offline only).
+  - **Steam** and **Rockstar Games Launcher** as standalone launcher recipes.
+
+The CrossOver observations, the Steam and Rockstar Games Launcher investigations, the toolchain, what didn't work, `ROSETTA_ADVERTISE_AVX` and the program settings the recipes build on are under "Findings and reference".
+
+## Phase 6: Per-game graphics auto-detection
 
 Goal: one Pfanne holds a whole Steam library, and each game automatically gets the right graphics layer.
 
@@ -281,17 +294,32 @@ Goal: one Pfanne holds a whole Steam library, and each game automatically gets t
    - Recipes must never set DXMT for a Pfanne that has the Rockstar Games Launcher: DXMT v0.80's d3d11 lacks `SwapDeviceContextState`, which the launcher needs (source checked November 25, 2026: `3Shain/dxmt` main, `src/d3d11/d3d11_context_impl.cpp` line 1850, `UNIMPLEMENTED("SwapDeviceContextState")`). The launcher's `usesWineGraphics` setting (Wine patch 0002) may make DXMT Pfannen work too, but that hasn't been tested with DXMT, so the rule stays until it is.
 4. Write **per-app DLL overrides** into the Pfanne's registry under `HKCU\Software\Wine\AppDefaults\<game>.exe\DllOverrides`, so Wine loads the right DLLs when Steam launches that game.
 5. Show the detected choice for each game in the UI, with a manual override and a "Reset to auto" button.
-6. Settings that are env vars (some D3DMetal options, MSync, and similar) can't be set per game through the registry. Phase 3 applies them per Pfanne. Note any that need a per-game launch shim later.
+6. Settings that are env vars (some D3DMetal options, MSync, and similar) can't be set per game through the registry. Phase 6 applies them per Pfanne. Note any that need a per-game launch shim later.
 7. Rescan when the Pfanne opens and on demand.
 
-## Phase 4: Game presets (recipe files)
+## Phase 7: Component updater
 
-- A simple, documented recipe format (JSON or YAML), one file per game or launcher, in a `recipes/` folder so the community can add more by pull request.
-- Each recipe has: name, rating, Windows version, graphics layer, sync, toggles, dependencies (Winetricks verbs), launcher(s) to install, notes shown to the user, and the date and component versions it was tested with.
-- First recipes:
-  - **GTA V Legacy (Steam):** Windows 10 64-bit; graphics D3DMetal; MSync on; DLSS off; High Resolution Mode off; install Rockstar Games Launcher **and** Steam in the **same Pfanne**; note: in the Rockstar Launcher go to Settings → GTA V and disable BattlEye (story mode only, GTA Online does not work); install "Grand Theft Auto V Legacy", not Enhanced (Enhanced currently needs a DirectX 12 feature D3DMetal lacks).
-  - **Halo: The Master Chief Collection (Steam):** Windows 10 64-bit; graphics D3DMetal (fallback DXVK); choose "Play with anti-cheat disabled" at launch (campaign and offline only).
-  - **Steam** and **Rockstar Games Launcher** as standalone launcher recipes.
+Engine downloads, pinning and rollback come in Phase 2 (engine and Pfanne core). Phase 7 adds the updater UI for every component.
+
+Show the installed version and the latest available version of each component, with update buttons:
+
+| Component | Source | Auto-update? |
+|---|---|---|
+| Wine engine | Schnitzel's own builds from CodeWeavers' source (default once tested). Sikarugir engines as a temporary reference, WineHQ builds for comparison only (GitHub releases) | Yes |
+| DXVK | Schnitzel's build of CodeWeavers' DXVK 1.10.3 (Gcenx's DXVK-macOS until then). Never DXVK 2.x | Yes |
+| MoltenVK | Schnitzel's build of CodeWeavers' MoltenVK (taken from Sikarugir's Template until then) | Yes |
+| DXMT | `3Shain/dxmt` GitHub releases, builtin build (v0.80, pinned now, is MIT; v0.81 and later are LGPL-2.1: when Schnitzel offers one, link its exact source and add its license to `LICENSES/`) | Yes |
+| D3DMetal | Apple Game Porting Toolkit | **No.** Detect the installed version and link to Apple's download page; requires the user's free Apple ID |
+
+Rules:
+- **Never auto-update a working Pfanne.** Each Pfanne can pin its component versions. Updates go to new or unpinned Pfannen, or happen when the user chooses.
+- Keep the previous version on disk so the user can roll back with one click.
+
+---
+
+## Findings and reference
+
+What earlier phases found out, kept for reference: observations of CrossOver, program investigations, the toolchain and what didn't work. Everything here is evidence for decisions made elsewhere in the plan.
 
 ### What CrossOver does for Steam and GTA V Legacy (observed November 2026)
 
@@ -310,6 +338,8 @@ Read-only observation of Anston's CrossOver 26.3.0 bottle "GTA V" (template `win
 - **Bottle registry:** standard `win10_64` template defaults (a list of `native, builtin` DllOverrides for old Microsoft components, `Direct3D\cb_access_map_w=1`, `Mac Driver\AllowSetGamma=0`); nothing specific to the game.
 - **For the recipe:** D3DMetal, MSync, `-nobattleye` (BattlEye off in the Rockstar Launcher), Steam and the Rockstar Games Launcher in the same Pfanne, and the Social Club program setting. Older engines also had a "simulate write-copy" list in `ntdll` naming the Rockstar Launcher, SocialClubHelper, Steam's overlay and other launchers; CodeWeavers' 26.3 source only keeps `WINE_SIMULATE_WRITECOPY` as an environment variable. Check whether the Rockstar Launcher needs it in Schnitzel before adding it.
 
+### Program investigations
+
 **Steam sign-in and the Rockstar Games Launcher with 26.3.0-2: caused by the compiler (found November 24, 2026).** With 26.3.0-2, Steam's window shows but it never contacts its login servers (it keeps rescheduling "EConnect"), and the Rockstar Games Launcher fails ("Launcher has no default branch!", Social Club never installs, then error 00000010).
 - Compared in scratch prefixes with identical files: CrossOver's own Wine signs Steam in within 9–36 s, ours never. Neither MSync on or off nor CrossOver's environment variables make a difference. Also ruled out: GnuTLS and certificates (HTTPS through WinHTTP works, 161 root certificates in every prefix), the clock, vkd3d, configure options, the Mac-side modules, and CrossOver's per-program database.
 - A bisection over the 68 Wine DLLs `steam.exe` loads (CrossOver's version symlinked into a scratch copy of our engine, nothing copied into the repository) points to exactly one: **`kernelbase.dll`**. Our `kernelbase.dll` without patch 0001 fails too, so the patch isn't the cause.
@@ -323,14 +353,15 @@ Read-only observation of Anston's CrossOver 26.3.0 bottle "GTA V" (template `win
 - Steam never failed in 7 tests: copies of Anston's Pfanne (DXMT and WineD3D), fresh Pfannen through its whole first run, and after the Rockstar Games Launcher with its processes still running. The disappearing window was a single crash ("nested exception on signal stack") when Steam restarted after its first update; starting Steam again works. The program check runs Steam's first start on every build to catch it if it recurs.
 - Fix: Auto never picks DXMT (see Architecture). Side finding: Wine can't load DLLs whose full path is longer than 260 characters; Schnitzel's own paths are far shorter (about 180 characters for Anston), but a very long user name or data folder could reach it.
 
-**Rockstar Games Launcher with D3DMetal 3.0: "failed to initialize" (investigation in progress, November 25, 2026).** With D3DMetal 3.0 imported, a new default Pfanne (Auto → D3DMetal, DLSS off) installs and signs in Steam, but the Rockstar Games Launcher shows "The Rockstar Games Launcher failed to initialize!". CrossOver runs the same launcher with D3DMetal 3.0 in every process.
+**Rockstar Games Launcher with D3DMetal 3.0: "failed to initialize" (cause found and fix written, November 25, 2026; waiting for engine 26.3.0-4).** With D3DMetal 3.0 imported, a new default Pfanne (Auto → D3DMetal, DLSS off) installs and signs in Steam, but the Rockstar Games Launcher shows "The Rockstar Games Launcher failed to initialize!". CrossOver runs the same launcher with D3DMetal 3.0 in every process.
 - Fails every time: Anston's Pfannen `test4` and `test-d3d`, and 2 of 2 fresh Pfannen made through `schnitzel-cli` (`check-programs.sh` with `D3DMETAL=`). The WineD3D control passes untouched (Social Club after 50 s, see the silent-install note under Program check).
 - The launcher's own log (`Documents/Rockstar Games/Launcher/launcher.log`): it reaches "Initializing group 1", connects to its background service, but its worker thread (`[Workr]` lines) never starts; about 9 s later it stops the service and exits with code 1. Working first starts have about 40 worker lines (self-update, Social Club install).
 - **Cause, proven (November 25, 2026):** the launcher creates a Direct2D factory (Wine's own `d2d1`) and asks it for a DC render target. Wine's `d2d1` needs a Direct3D 10.1 device for that and calls `D3D10CreateDevice1` → `D3D10CoreCreateDevice` (Wine's `d3d10_1`/`d3d10core`) → `dxgi.DXGID3D10CreateDevice`. In D3DMetal 3.0's `dxgi.dll` that export is a stub that prints its own signature with `puts` and returns `E_FAIL` (0x80004005); `DXGID3D10RegisterLayers` and `DXGIGetDebugInterface1` are stubs the same way. Trace (`+d2d,+d3d10,+d3d10core`): `d2d_factory_CreateDCRenderTarget` → `D3D10CoreCreateDevice ... Failed to create device, hr 0x80004005` → `d2d_factory_get_device Failed`, then the launcher gives up. D3DMetal's own `d3d10.dll` only exports `D3D10CreateDevice` and `D3D10CreateBlob`, not `D3D10CreateDevice1`. CodeWeavers' open Wine source has no change in `d2d1`, `d3d10_1`, `d3d10core`, `d3d11` or `dxgi`, so the difference is in which files CrossOver loads.
 - **What CrossOver does (observed November 25, 2026, Anston's "GTA V" bottle, CrossOver 26.3, launcher started with CrossOver's `bin/wine --bottle`, `lsof` on the running processes, nothing of CrossOver's opened):** it chooses per program. `Launcher.exe` loads Wine's own `dxgi.dll`, `d3d11.dll`, `d3d10core.dll`, `d3d10_1.dll`, `d2d1.dll` and `wined3d.dll` from `lib/wine/x86_64-windows` (plus `libd3dshared.dylib` and MoltenVK), so its Direct2D works on WineD3D. The main `SocialClubHelper.exe` loads D3DMetal's `dxgi.dll` from `lib64/apple_gptk/wine/x86_64-windows` and `D3DMetal.framework`. CrossOver keeps D3DMetal's DLLs in that separate folder (d3d11, d3d12, dxgi, nvapi64, nvngx, atidxx64; no d3d10) instead of replacing Wine's. The open source shows CrossOver special-cases this launcher by path elsewhere too (CW HACK 23741 in `ntdll/unix/process.c`, alternative loader suppressed for `\Rockstar Games\Launcher\Launcher.exe`); the per-program D3DMetal choice itself isn't in the open source.
 - **Fix (Anston chose the side-folder option, November 25, 2026; awaiting engine 26.3.0-4 and his test):** engine assemblies keep Wine's own copies of every file D3DMetal or DXMT replaces in `lib/schnitzel-wine-graphics/<arch>/` (assembly marker version 2; older assemblies are rebuilt). Wine patch 0002 (`ntdll`): if the main program's Windows path ends with an entry of `SCHNITZEL_WINE_GRAPHICS_PROGRAMS`, the folder in `SCHNITZEL_WINE_GRAPHICS_DLLPATH` is searched first for builtin DLLs, through CodeWeavers' `prepend_dll_path()` (the hook CrossOver's closed `cxcompatdb.so` uses). The program setting `usesWineGraphics` (with `pathEnding` for generic names) is on by default for `Rockstar Games\Launcher\Launcher.exe`; every other process, Social Club and GTA V included, keeps D3DMetal. The alternative, CrossOver's layout (no assemblies, D3DMetal in its own folder in front), was not chosen because it is a bigger refactor for the same result.
+- **Tested with a temporary engine (November 25, 2026):** 26.3.0-3 with only `ntdll.so` replaced by one built on Anston's Mac from the same source with patch 0002 (same exports and linked libraries; scratch folders only, never released). `check-programs.sh` with D3DMetal passes untouched: silent install in 6 s, Social Club after 51 s. `lsof`: `Launcher.exe` loads `dxgi.dll`/`d3d11.dll` from `lib/schnitzel-wine-graphics`, the main `SocialClubHelper.exe` D3DMetal's `dxgi.dll` and `D3DMetal.framework`, the same split as CrossOver. Still to do: the CI-built 26.3.0-4 and Anston's own test, including GTA V.
 - Checked, and the same as what CodeWeavers' Wine expects: `CX_ACTIVE_GRAPHICS_BACKEND=d3dmetal` and `CX_APPLEGPTK_LIBD3DSHARED_PATH` pointing at `libd3dshared.dylib` (checked in `win32u/d3dkmt.c`, `win32u/vulkan.c`, `ntdll/unix/loader.c`).
-- Not yet tested one at a time: D3DMetal's `nvapi64`/`nvngx-on-metalfx`/`atidxx64`, its `d3d10`, the two variables, `WINEESYNC`, `ROSETTA_ADVERTISE_AVX`, and CrossOver's layout (D3DMetal's DLLs in a separate `WINEDLLPATH` folder in front of the plain engine instead of an assembly), plus which MoltenVK is loaded. A first bisection round was inconclusive: the launcher only writes its last log lines after its error dialog is closed, so the harness timed out on every variant, baseline included.
+- No longer needed after the cause was found: the one-at-a-time tests of D3DMetal's other DLLs, the variables and CrossOver's folder layout. (The first bisection round had been inconclusive because the launcher only writes its last log lines after its error dialog is closed.)
 - Wine links the Windows user folders (Documents, Downloads, Music, Pictures, Videos) to the Mac user's own folders, in Schnitzel's Pfannen and in CrossOver's bottles alike; the launcher's logs and settings are shared between all of them. Checks now replace those links with empty folders.
 
 ### Toolchain
@@ -359,7 +390,9 @@ Every Windows-side (PE) file Schnitzel builds (Wine's DLLs for i386 and x86_64, 
 - **The loader memory reserve as the cause of Sikarugir 11.0_1's failure:** ruled out; the prefix check covers it.
 - **Editing a bash script while it runs** breaks the run; **`timeout`** doesn't exist on macOS.
 
-**ROSETTA_ADVERTISE_AVX=1** (done): measured on macOS 26.6.2, Rosetta hides AVX unless it's set; with it, Windows programs see AVX, AVX2, FMA, F16C and BMI2, and AVX2 code runs correctly. On by default in Pfannen (settings file version 2 migrates old files); a switch in the Pfanne settings comes with Phase 2.
+### ROSETTA_ADVERTISE_AVX
+
+**ROSETTA_ADVERTISE_AVX=1** (done): measured on macOS 26.6.2, Rosetta hides AVX unless it's set; with it, Windows programs see AVX, AVX2, FMA, F16C and BMI2, and AVX2 code runs correctly. On by default in Pfannen (settings file version 2 migrates old files); a switch in the Pfanne settings comes with Phase 4.
 
 ### Program settings
 
@@ -368,26 +401,6 @@ Per-program settings live in SchnitzelKit's `ProgramSettings`, keyed by the prog
 - A Pfanne's own `programs` entries (from recipes or the user) are laid over them; an empty value turns a built-in one off.
 - Pfanne setup writes them to `HKCU\Software\Wine\AppDefaults\<program>\CommandLineAppend` and counts them in the applied fingerprint, so existing Pfannen pick up new defaults on their next launch. The run log lists them.
 - The engine side is Wine patch 0001. Sikarugir's engines read the same registry value, so the setting also works there.
-
-## Phase 5: Component updater
-
-Engine downloads, pinning and rollback come in the engine and Pfanne core phase. Phase 5 adds the updater UI for every component.
-
-Show the installed version and the latest available version of each component, with update buttons:
-
-| Component | Source | Auto-update? |
-|---|---|---|
-| Wine engine | Schnitzel's own builds from CodeWeavers' source (default once tested). Sikarugir engines as a temporary reference, WineHQ builds for comparison only (GitHub releases) | Yes |
-| DXVK | Schnitzel's build of CodeWeavers' DXVK 1.10.3 (Gcenx's DXVK-macOS until then). Never DXVK 2.x | Yes |
-| MoltenVK | Schnitzel's build of CodeWeavers' MoltenVK (taken from Sikarugir's Template until then) | Yes |
-| DXMT | `3Shain/dxmt` GitHub releases, builtin build (LGPL-2.1 from v0.81, MIT before) | Yes |
-| D3DMetal | Apple Game Porting Toolkit | **No.** Detect the installed version and link to Apple's download page; requires the user's free Apple ID |
-
-Rules:
-- **Never auto-update a working Pfanne.** Each Pfanne can pin its component versions. Updates go to new or unpinned Pfannen, or happen when the user chooses.
-- Keep the previous version on disk so the user can roll back with one click.
-
----
 
 ## Later ideas (not now)
 

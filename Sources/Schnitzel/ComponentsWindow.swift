@@ -20,7 +20,7 @@ import AppKit
 import SchnitzelKit
 import SwiftUI
 
-/// Installed and downloadable components. Minimal layout; Phase 5 adds the full updater.
+/// Installed and downloadable components. Minimal layout; Phase 7 adds the full updater.
 struct ComponentsWindow: View {
     static let id = "components"
     @Environment(AppModel.self) private var model

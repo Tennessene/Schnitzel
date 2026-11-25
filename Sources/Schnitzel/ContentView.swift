@@ -19,7 +19,7 @@
 import SchnitzelKit
 import SwiftUI
 
-/// Main window. A minimal working layout for testing the core; Phase 2 replaces it.
+/// Main window. A minimal working layout for testing the core; Phase 4 replaces it.
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow

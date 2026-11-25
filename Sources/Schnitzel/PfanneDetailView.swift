@@ -20,7 +20,7 @@ import AppKit
 import SchnitzelKit
 import SwiftUI
 
-/// A Pfanne's actions and settings. Minimal layout for testing the core; Phase 2 redesigns it.
+/// A Pfanne's actions and settings. Minimal layout for testing the core; Phase 4 redesigns it.
 struct PfanneDetailView: View {
     @Environment(AppModel.self) private var model
     let pfanne: Pfanne

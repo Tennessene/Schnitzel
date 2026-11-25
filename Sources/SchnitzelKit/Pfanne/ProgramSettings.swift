@@ -22,7 +22,7 @@ import Foundation
 ///
 /// Programs are identified by their file name (`steamwebhelper.exe`), the way Wine's own
 /// per-program settings (`HKCU\Software\Wine\AppDefaults\<file name>`) identify them.
-/// Recipes (Phase 4) add entries for single games; `ProgramDefaults` holds the ones every
+/// Recipes (Phase 5) add entries for single games; `ProgramDefaults` holds the ones every
 /// Pfanne needs.
 public struct ProgramSettings: Codable, Equatable, Sendable {
     /// Options added to the end of the program's command line whenever it starts, even when
