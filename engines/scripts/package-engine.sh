@@ -69,16 +69,11 @@ cp "$wine/LICENSE" "$licenses/Wine-LICENSE"
 cp "$wine/AUTHORS" "$licenses/Wine-AUTHORS"
 cp "$deps/licenses/"* "$licenses/"
 cp "$moltenvk/licenses/"* "$licenses/"
-# Wine's Windows-side modules are built with llvm-mingw and contain parts of its runtime
-# (MinGW-w64 CRT, compiler-rt, libc++/libunwind where used).
-toolchain="$output/llvm-mingw"
-if [[ ! -d "$toolchain" ]]; then
-    unpack "$(input_archive "$inputs" llvm-mingw)" "$toolchain"
-fi
-cp "$toolchain/LICENSE.TXT" "$licenses/llvm-mingw-LICENSE.TXT"
-for file in "$toolchain"/x86_64-w64-mingw32/share/mingw32/COPYING*; do
-    cp "$file" "$licenses/mingw-w64-$(basename "$file")"
-done
+# Wine's Windows-side modules are built with MinGW-w64 GCC and contain parts of its runtime
+# (libgcc, under the GCC Runtime Library Exception; MinGW-w64 runtime pieces).
+toolchain="$output/mingw-gcc-x86_64"
+[[ -d "$toolchain/licenses" ]] || { echo "error: $toolchain/licenses is missing; build the toolchain first" >&2; exit 1; }
+cp "$toolchain/licenses/"* "$licenses/"
 ls "$licenses"
 
 step "BUILDINFO.json and SOURCE.md"
@@ -120,7 +115,9 @@ info = {
     "toolchain": {
         "xcode": out("xcodebuild", "-version"),
         "clang": out("clang", "--version"),
-        "llvmMingw": next(i["version"] for i in inputs if i["id"] == "llvm-mingw"),
+        "windowsCompiler": "MinGW-w64 GCC " + next(i["version"] for i in inputs if i["id"] == "gcc")
+            + ", binutils " + next(i["version"] for i in inputs if i["id"] == "binutils")
+            + ", MinGW-w64 " + next(i["version"] for i in inputs if i["id"] == "mingw-w64"),
         "deploymentTarget": os.environ.get("MACOSX_DEPLOYMENT_TARGET"),
     },
     "architecture": "x86_64 (runs under Rosetta 2 on Apple Silicon); WoW64: 32-bit and 64-bit Windows programs",

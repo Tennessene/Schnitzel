@@ -5,12 +5,15 @@
 # This file is part of Schnitzel, licensed under the GNU General Public License v3.0 or later.
 #
 # Usage: engines/scripts/build-wine.sh INPUTS_DIR OUTPUT_DIR
-#   Needs OUTPUT_DIR/deps from build-unix-libs.sh and OUTPUT_DIR/moltenvk from build-moltenvk.sh.
+#   Needs OUTPUT_DIR/deps from build-unix-libs.sh, OUTPUT_DIR/moltenvk from build-moltenvk.sh
+#   and OUTPUT_DIR/mingw-gcc-{i686,x86_64} from build-toolchain.sh.
 #   Installs Wine into OUTPUT_DIR/wine (bin/, lib/wine/, share/wine/).
 #
-# A WoW64 build (64-bit and 32-bit Windows programs, 64-bit unix side) with llvm-mingw for
-# the Windows-side DLLs. CodeWeavers' configure.ac already sets the macOS loader flags (the
-# reserved low memory for Windows code); check-engine.sh verifies them afterwards.
+# A WoW64 build (64-bit and 32-bit Windows programs, 64-bit unix side) with MinGW-w64 GCC
+# 13.2.0 for the Windows-side DLLs, the compiler CodeWeavers builds CrossOver's Wine with.
+# Never llvm-mingw/Clang: see SCHNITZEL_PLAN.md ("Toolchain"). CodeWeavers' configure.ac
+# already sets the macOS loader flags (the reserved low memory for Windows code);
+# check-engine.sh verifies them afterwards.
 
 source "$(dirname "$0")/common.sh"
 
@@ -27,10 +30,13 @@ rm -rf "$install" "$work"
 mkdir -p "$work"
 
 step "Toolchain"
-toolchain="$output/llvm-mingw"
-if [[ ! -x "$toolchain/bin/x86_64-w64-mingw32-clang" ]]; then
-    unpack "$(input_archive "$inputs" llvm-mingw)" "$toolchain"
-fi
+gcc32="$output/mingw-gcc-i686/bin/i686-w64-mingw32-gcc"
+gcc64="$output/mingw-gcc-x86_64/bin/x86_64-w64-mingw32-gcc"
+for compiler in "$gcc32" "$gcc64"; do
+    [[ -x "$compiler" ]] || { echo "error: $compiler is missing; run build-toolchain.sh first" >&2; exit 1; }
+    [[ "$("$compiler" -dumpversion)" == "$(input_field gcc version)" ]] \
+        || { echo "error: $compiler is GCC $("$compiler" -dumpversion), expected $(input_field gcc version)" >&2; exit 1; }
+done
 # Wine needs a newer bison and flex than macOS has; Homebrew's are keg-only. They are looked
 # up by path, not with brew: under Rosetta on Apple Silicon (the fallback build), Homebrew
 # in /opt/homebrew refuses to run, so CI installs them natively before this script.
@@ -47,13 +53,14 @@ tool_dir() {  # tool_dir NAME: the bin folder of Homebrew's keg-only NAME
 }
 bison_dir="$(tool_dir bison)"
 flex_dir="$(tool_dir flex)"
-# llvm-mingw goes last: it has its own unprefixed clang, clang++ and clang-cpp, which can't
-# build Mac code. Wine's configure finds the prefixed x86_64-w64-mingw32-clang anywhere in
-# PATH. The Mac compilers are named explicitly as well.
-export PATH="$bison_dir:$flex_dir:$PATH:$toolchain/bin"
+# The cross tools are all prefixed (x86_64-w64-mingw32-ld, ...), so they can't shadow the
+# Mac's; Wine's winebuild finds them by prefix. The compilers are also named explicitly
+# (i386_CC, x86_64_CC below), so no other MinGW in PATH (Homebrew's, say) can be picked up.
+export PATH="$bison_dir:$flex_dir:$output/mingw-gcc-x86_64/bin:$output/mingw-gcc-i686/bin:$PATH"
 export CC=/usr/bin/clang CXX=/usr/bin/clang++
-"$CC" --version | awk 'NR==1' 
-x86_64-w64-mingw32-clang --version | awk 'NR==1'
+"$CC" --version | awk 'NR==1'
+"$gcc64" --version | awk 'NR==1'
+"$gcc32" --version | awk 'NR==1'
 bison --version | awk 'NR==1'
 flex --version | awk 'NR==1'
 
@@ -92,6 +99,7 @@ configure_args=(
     --without-capi --without-dbus --without-ffmpeg --without-fontconfig --without-gphoto
     --without-gssapi --without-gstreamer --without-krb5 --without-netapi --without-sane
     --without-udev --without-usb --without-v4l2
+    i386_CC="$gcc32" x86_64_CC="$gcc64"
 )
 "$work/source/configure" --prefix="$install" "${configure_args[@]}" 2>&1 | tee "$work/configure.log"
 
@@ -118,6 +126,11 @@ if grep -E '^#define SONAME_' "$config_h" | grep -vE '^#define SONAME_[A-Z0-9_]+
     echo "error: configure recorded library names that aren't plain file names (above)" >&2
     missing=1
 fi
+# And with the pinned GCC for both.
+for pair in "i386_CC:$gcc32" "x86_64_CC:$gcc64"; do
+    grep -qx "${pair%%:*} = ${pair#*:}" "$work/build/Makefile" \
+        || { echo "error: configure didn't take ${pair#*:} as ${pair%%:*}: $(grep "^${pair%%:*} " "$work/build/Makefile")" >&2; missing=1; }
+done
 [[ $missing == 0 ]] || { grep -iE "won't be supported|not found" "$work/configure.log" >&2 || true; exit 1; }
 
 step "Build (this is the long part)"

@@ -3,7 +3,7 @@
  *
  * This file is part of Schnitzel, licensed under the GNU General Public License v3.0 or later.
  *
- * Built twice with llvm-mingw, as a 32-bit (i686) and a 64-bit (x86_64) program. The prefix
+ * Built twice with MinGW-w64 GCC, as a 32-bit (i686) and a 64-bit (x86_64) program. The prefix
  * check runs both through Wine and compares their output and exit code, which proves that
  * the engine's WoW64 build runs 32-bit and 64-bit Windows programs.
  */
