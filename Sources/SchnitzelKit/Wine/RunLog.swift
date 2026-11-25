@@ -56,6 +56,10 @@ public enum RunLog {
             if let append = settings.effectivePrograms[program]?.commandLineAppend, !append.isEmpty {
                 header += "Program setting: \(program) gets \(append)\n"
             }
+            if let wine = settings.effectivePrograms[program], wine.usesWineGraphics == true,
+               runtime.graphics.provider != .wineD3D {
+                header += "Program setting: \(wine.pathEnding ?? program) uses Wine's own graphics DLLs\n"
+            }
         }
         header += "\n"
         handle.write(line: header)

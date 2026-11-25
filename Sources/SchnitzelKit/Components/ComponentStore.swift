@@ -34,7 +34,12 @@ import os.log
 /// a new folder and the old one stays for rollback.
 public struct ComponentStore: Sendable {
     public static let manifestName = "Component.plist"
-    static let assemblyMarker = ".schnitzel-assembly-complete"
+    /// Version 2 adds `wineGraphicsFolder`; assemblies without it are rebuilt.
+    static let assemblyMarker = ".schnitzel-assembly-complete-2"
+    /// Inside an assembly's `lib/`: Wine's own copies of the files the overlay replaced, in
+    /// the same `<arch>/` layout as `lib/wine`. Programs with `ProgramSettings.usesWineGraphics`
+    /// load from here first (Wine patch 0002).
+    public static let wineGraphicsFolder = "lib/schnitzel-wine-graphics"
 
     public let root: URL
 
@@ -191,15 +196,18 @@ public struct ComponentStore: Sendable {
             try FileManager.default.copyItem(at: engine.folder, to: staging)
             let stagingRoot = engine.manifest.rootPath == "." ? staging : staging.appending(path: engine.manifest.rootPath)
             let wineLib = stagingRoot.appending(path: "lib/wine")
+            let wineGraphics = stagingRoot.appending(path: Self.wineGraphicsFolder)
 
             switch provider {
             case .d3dMetal:
                 // The Game Porting Toolkit's redist/lib merges into the engine's lib.
+                try Self.keepOriginals(replacedBy: overlay.root.appending(path: "wine"), in: wineLib, into: wineGraphics)
                 try Self.merge(overlay.root, into: stagingRoot.appending(path: "lib"))
             case .dxmt:
                 for arch in ["x86_64-windows", "x86_64-unix", "i386-windows"] {
                     let source = overlay.root.appending(path: arch)
                     if ComponentInspector.isDirectory(source) {
+                        try Self.keepOriginals(replacedBy: overlay.root, in: wineLib, into: wineGraphics, archs: [arch])
                         try Self.merge(source, into: wineLib.appending(path: arch))
                     }
                 }
@@ -230,6 +238,27 @@ public struct ComponentStore: Sendable {
             return name.hasSuffix("+\(BuiltinProvider.d3dMetal.rawValue)-\(version)")
         case .dxvk, .libraries:
             return false
+        }
+    }
+
+    /// Copies the files in `wineLib/<arch>/` that `overlayWine/<arch>/` is about to replace into
+    /// `destination/<arch>/`, so programs that need Wine's own versions can still load them.
+    static func keepOriginals(replacedBy overlayWine: URL, in wineLib: URL, into destination: URL,
+                              archs: [String]? = nil) throws {
+        let fileManager = FileManager.default
+        let archNames = archs ?? ((try? fileManager.contentsOfDirectory(atPath: overlayWine.path)) ?? []).sorted()
+        for arch in archNames {
+            let overlayArch = overlayWine.appending(path: arch)
+            guard ComponentInspector.isDirectory(overlayArch) else { continue }
+            for name in try fileManager.contentsOfDirectory(atPath: overlayArch.path).sorted() {
+                let original = wineLib.appending(path: arch).appending(path: name)
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: original.path, isDirectory: &isDirectory), !isDirectory.boolValue
+                else { continue }
+                let folder = destination.appending(path: arch, directoryHint: .isDirectory)
+                try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+                try fileManager.copyItem(at: original, to: folder.appending(path: name))
+            }
         }
     }
 

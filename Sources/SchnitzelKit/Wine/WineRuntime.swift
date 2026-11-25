@@ -82,6 +82,7 @@ public struct WineRuntime: Sendable {
             env.merge(RuntimeLibraries.environment(for: libraries)) { $1 }
         }
         env.merge(graphicsEnvironment) { $1 }
+        env.merge(wineGraphicsEnvironment) { $1 }
         pfanne.settings.environmentVariables(wineEnv: &env)
         env.merge(extra) { $1 }
         return env
@@ -103,6 +104,17 @@ public struct WineRuntime: Sendable {
         case .wineD3D:
             return [:]
         }
+    }
+
+    /// Read by Schnitzel's Wine patch 0002: programs with `ProgramSettings.usesWineGraphics`
+    /// load Wine's own d3d DLLs, kept in the assembly, instead of D3DMetal's or DXMT's. Empty
+    /// when the Pfanne runs on WineD3D or the assembly has no such folder.
+    var wineGraphicsEnvironment: [String: String] {
+        guard graphics.provider != .wineD3D else { return [:] }
+        let folder = engineRoot.appending(path: ComponentStore.wineGraphicsFolder)
+        let programs = ProgramDefaults.wineGraphicsList(pfanne.settings.effectivePrograms)
+        guard !programs.isEmpty, ComponentInspector.isDirectory(folder) else { return [:] }
+        return ["SCHNITZEL_WINE_GRAPHICS_DLLPATH": folder.path, "SCHNITZEL_WINE_GRAPHICS_PROGRAMS": programs]
     }
 
     /// Fingerprint of everything `PfanneSetup.apply` writes into the prefix. When it

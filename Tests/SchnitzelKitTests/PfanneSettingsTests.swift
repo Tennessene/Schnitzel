@@ -232,3 +232,21 @@ import Testing
         """#)
     }
 }
+
+@Suite struct WineGraphicsProgramTests {
+    @Test func listsPathEndingsOrFileNames() {
+        let programs = ProgramDefaults.effective([
+            "C:\\Games\\Old.exe": ProgramSettings(usesWineGraphics: true),
+            "odd.exe": ProgramSettings(usesWineGraphics: true, pathEnding: "a;b.exe"),
+            "steam.exe": ProgramSettings(commandLineAppend: "-x")
+        ])
+        #expect(ProgramDefaults.wineGraphicsList(programs) == #"Rockstar Games\Launcher\Launcher.exe;old.exe"#)
+    }
+
+    @Test func oldSettingsFilesStillDecode() throws {
+        let json = #"{"commandLineAppend":"--a","reason":"r"}"#
+        let settings = try JSONDecoder().decode(ProgramSettings.self, from: Data(json.utf8))
+        #expect(settings.commandLineAppend == "--a")
+        #expect(settings.usesWineGraphics == nil)
+    }
+}

@@ -205,6 +205,12 @@ struct Scratch {
         #expect(scratch.contents(root.appending(path: "lib/wine/x86_64-unix/winemetal.so")) == "winemetal unix")
         // The engine itself is unchanged.
         #expect(scratch.contents(engine.root.appending(path: "lib/wine/x86_64-windows/d3d11.dll")) == "wine d3d11")
+        // Wine's own copy of what DXMT replaced is kept for programs that need it; files DXMT
+        // only adds have no original.
+        let originals = root.appending(path: ComponentStore.wineGraphicsFolder)
+        #expect(scratch.contents(originals.appending(path: "x86_64-windows/d3d11.dll")) == "wine d3d11")
+        #expect(!FileManager.default.fileExists(atPath: originals.appending(path: "x86_64-windows/winemetal.dll").path))
+        #expect(!FileManager.default.fileExists(atPath: originals.appending(path: "x86_64-windows/dxgi.dll").path))
         // A second call reuses the cached assembly.
         #expect(try store.engineRoot(engine: engine, provider: .dxmt, overlay: dxmt) == root)
         // WineD3D runs the engine directly.
@@ -233,6 +239,7 @@ struct Scratch {
 
         var pfanne = try PfanneStore(root: scratch.url.appending(path: "Pfannen")).create(name: "D3DMetal", engine: "E1")
         pfanne.settings.pins.d3dMetal = d3dMetal.version
+        pfanne.settings.graphics.layer = .auto
         let env = try WineRuntime.prepare(for: pfanne, store: store).environment()
         #expect(env["CX_APPLEGPTK_LIBD3DSHARED_PATH"]?.hasSuffix("lib/external/libd3dshared.dylib") == true)
         #expect(env["CX_ACTIVE_GRAPHICS_BACKEND"] == "d3dmetal")
@@ -242,6 +249,48 @@ struct Scratch {
         #expect(scratch.contents(root.appending(path: "lib/wine/x86_64-windows/dxgi.dll")) == "wine dxgi")
         #expect(scratch.contents(root.appending(path: "lib/external/libd3dshared.dylib")) == "shared")
         #expect(scratch.contents(root.appending(path: "bin/wine")) == "loader")
+        let originals = root.appending(path: ComponentStore.wineGraphicsFolder)
+        #expect(scratch.contents(originals.appending(path: "x86_64-windows/d3d11.dll")) == "wine d3d11")
+        #expect(!FileManager.default.fileExists(atPath: originals.appending(path: "x86_64-windows/d3d12.dll").path))
+
+        // The Rockstar Games Launcher gets Wine's own d3d DLLs (Wine patch 0002); the list
+        // names it by its path, since "launcher.exe" alone is too generic.
+        #expect(env["SCHNITZEL_WINE_GRAPHICS_DLLPATH"] == originals.path)
+        #expect(env["SCHNITZEL_WINE_GRAPHICS_PROGRAMS"] == #"Rockstar Games\Launcher\Launcher.exe"#)
+        pfanne.settings.programs["Launcher.exe"] = ProgramSettings(usesWineGraphics: false)
+        pfanne.settings.programs["Tool.exe"] = ProgramSettings(usesWineGraphics: true)
+        let changed = try WineRuntime.prepare(for: pfanne, store: store).environment()
+        #expect(changed["SCHNITZEL_WINE_GRAPHICS_PROGRAMS"] == "tool.exe")
+
+        // On WineD3D everything already uses Wine's own DLLs.
+        pfanne.settings.graphics.layer = .wineD3D
+        let plain = try WineRuntime.prepare(for: pfanne, store: store).environment()
+        #expect(plain["SCHNITZEL_WINE_GRAPHICS_DLLPATH"] == nil)
+        #expect(plain["SCHNITZEL_WINE_GRAPHICS_PROGRAMS"] == nil)
+    }
+
+    @Test func assembliesWithoutWineOriginalsAreRebuilt() async throws {
+        let scratch = try Scratch(); defer { scratch.remove() }
+        let store = ComponentStore(root: scratch.url.appending(path: "Components"))
+        let engine = try await store.install(
+            .engine, version: "E1",
+            archive: try await scratch.archive(try scratch.tree("e", Self.sikarugirStyleEngine), name: "e.tar.gz"),
+            source: "test")
+        let dxmt = try await store.install(
+            .dxmt, version: "v0.80",
+            archive: try await scratch.archive(try scratch.tree("m", [
+                "dxmt-v0.80/x86_64-windows/d3d11.dll": "dxmt d3d11",
+                "dxmt-v0.80/x86_64-windows/winemetal.dll": "winemetal",
+                "dxmt-v0.80/x86_64-unix/winemetal.so": "winemetal unix"
+            ]), name: "m.tar.gz"),
+            source: "test")
+        // An assembly as Schnitzel built them before the originals folder existed.
+        let old = store.assembliesFolder.appending(path: ComponentStore.assemblyName(engine: "E1", provider: .dxmt, version: "v0.80"))
+        try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: old.appending(path: ".schnitzel-assembly-complete").path, contents: nil)
+
+        let root = try store.engineRoot(engine: engine, provider: .dxmt, overlay: dxmt)
+        #expect(scratch.contents(root.appending(path: "\(ComponentStore.wineGraphicsFolder)/x86_64-windows/d3d11.dll")) == "wine d3d11")
     }
 }
 

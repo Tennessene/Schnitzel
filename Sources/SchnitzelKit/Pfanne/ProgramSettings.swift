@@ -30,11 +30,21 @@ public struct ProgramSettings: Codable, Equatable, Sendable {
     /// engine with Schnitzel's Wine patch 0001 (`engines/patches/wine`). An empty string
     /// turns off a built-in default.
     public var commandLineAppend: String?
+    /// Run the program with Wine's own d3d DLLs (WineD3D) when the Pfanne's builtin slot holds
+    /// D3DMetal or DXMT. Other programs in the Pfanne, the ones it starts included, keep the
+    /// Pfanne's graphics. Needs an engine with Schnitzel's Wine patch 0002.
+    public var usesWineGraphics: Bool?
+    /// For generic file names such as `launcher.exe`: `usesWineGraphics` only applies when the
+    /// program's Windows path ends with this (for example `Rockstar Games\Launcher\Launcher.exe`).
+    public var pathEnding: String?
     /// Why the program needs this, for logs and the interface.
     public var reason: String?
 
-    public init(commandLineAppend: String? = nil, reason: String? = nil) {
+    public init(commandLineAppend: String? = nil, usesWineGraphics: Bool? = nil, pathEnding: String? = nil,
+                reason: String? = nil) {
         self.commandLineAppend = commandLineAppend
+        self.usesWineGraphics = usesWineGraphics
+        self.pathEnding = pathEnding
         self.reason = reason
     }
 
@@ -62,8 +72,26 @@ public enum ProgramDefaults {
         // keeps its GPU part in-process and draws it with ANGLE's software renderer.
         "socialclubhelper.exe": ProgramSettings(
             commandLineAppend: "--in-process-gpu --use-gl=angle --use-angle=swiftshader",
-            reason: "Rockstar's launcher and Social Club overlay need these on Wine for macOS")
+            reason: "Rockstar's launcher and Social Club overlay need these on Wine for macOS"),
+        // The Rockstar Games Launcher draws with Direct2D, which needs a Direct3D 10.1 device;
+        // D3DMetal's dxgi doesn't implement that, so the launcher fails to initialize.
+        // CrossOver 26.3 gives this launcher Wine's own d3d DLLs and Social Club D3DMetal's
+        // (observed with lsof, November 25, 2026). The file name alone is too generic.
+        "launcher.exe": ProgramSettings(
+            usesWineGraphics: true, pathEnding: #"Rockstar Games\Launcher\Launcher.exe"#,
+            reason: "The Rockstar Games Launcher fails to initialize with D3DMetal's DLLs")
     ]
+
+    /// The programs that use Wine's own graphics DLLs, as patch 0002 reads them from
+    /// `SCHNITZEL_WINE_GRAPHICS_PROGRAMS` (`;`-separated path endings or file names).
+    public static func wineGraphicsList(_ programs: [String: ProgramSettings]) -> String {
+        programs.keys.sorted().compactMap { key -> String? in
+            guard let settings = programs[key], settings.usesWineGraphics == true else { return nil }
+            let ending = settings.pathEnding?.trimmingCharacters(in: .whitespaces) ?? ""
+            let entry = ending.isEmpty ? key : ending
+            return entry.contains(";") || !entry.allSatisfy(\.isASCII) ? nil : entry
+        }.joined(separator: ";")
+    }
 
     /// The built-in settings with a Pfanne's own entries laid over them (the Pfanne's win;
     /// an empty `commandLineAppend` turns a built-in one off). Keys are normalized.
