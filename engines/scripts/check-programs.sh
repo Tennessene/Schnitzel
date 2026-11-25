@@ -40,10 +40,12 @@ dxmt_version="dxmt-v0.80"
 dxvk_version="dxvk-macos-v1.10.3-20230507-repack"
 rockstar_url="https://gamedownloads.rockstargames.com/public/installer/Rockstar-Games-Launcher.exe"
 steam_url="https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe"
-# Seconds. Passing runs took 70-80 s (Rockstar) and 116-209 s (Steam, which first downloads a
-# 336 MB update); the limits are about twice that. A failure that shows itself stops earlier.
-rockstar_limit=${ROCKSTAR_LIMIT:-240}
-steam_limit=${STEAM_CONNECT_LIMIT:-360}
+# Seconds. Passing runs on Anston's Mac took 60-156 s (Rockstar, which downloads Social Club)
+# and 116-209 s (Steam, which downloads a 336 MB update and restarts itself three times). The
+# 3-CPU Apple Silicon runner, where everything runs under Rosetta, needed more than 240 s for
+# Rockstar, so the limits leave room. The DXMT failure is still caught within seconds.
+rockstar_limit=${ROCKSTAR_LIMIT:-480}
+steam_limit=${STEAM_CONNECT_LIMIT:-600}
 
 [[ -n "$work" && "$work" != "/" ]] || { echo "error: bad WORK_DIR" >&2; exit 1; }
 rm -rf "${work:?}"
@@ -58,6 +60,9 @@ cleanup() {
     "$cli" stop "$pfanne" > /dev/null 2>&1 || true
     # Keep the Pfanne's run logs and the programs' own logs for debugging.
     cp -R "$SCHNITZEL_DATA_DIR/Logs/." "$work/logs/" 2>/dev/null || true
+    mkdir -p "$work/logs/rockstar"
+    find "$drive_c/users" \( -ipath "*Rockstar Games/Launcher/*.log" -o -iname "prelauncher_events.json" \
+        -o -ipath "*Rockstar Games/Social Club/*.log" \) -exec cp {} "$work/logs/rockstar/" \; 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -120,11 +125,9 @@ for program in "${programs[@]}"; do
         while (( $(date +%s) - start < steam_limit )); do
             sleep 5
             if [[ -f "$connection_log" ]] && grep -q "ConnectionCompleted" "$connection_log"; then ok=1; break; fi
-            # Steam restarts itself after its update, so only give up once no steam.exe has
-            # been running for a while.
-            # pgrep -f sees whole command lines (ps cuts them short when it isn't writing to a terminal).
-            if pgrep -f 'Steam\\steam\.exe' > /dev/null; then gone=0; else gone=$(( ${gone:-0} + 5 )); fi
-            (( gone >= 30 )) && { echo "        steam.exe isn't running any more" >&2; break; }
+            # No early stop when steam.exe disappears: Steam exits with code 42 after each update
+            # and starts a new copy of itself (once as "Steam.exe"), three times on a first run,
+            # and a process check stopped it in the middle of extracting an update.
         done
         # Steam's own logs, without account numbers (there is no account, but Steam logs a placeholder ID).
         for f in "$steam_dir"/logs/{connection_log,bootstrap_log,webhelper,console_log}.txt; do
