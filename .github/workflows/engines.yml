@@ -471,6 +471,40 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # Steam reaches its servers with this engine (no account needed). Steam's installer comes
+  # from Valve's CDN and isn't pinned, so this job isn't required by the release until it has
+  # proven reliable over several runs.
+  check-steam:
+    name: Steam check on ${{ matrix.machine }}
+    needs: [config, package]
+    strategy:
+      fail-fast: false
+      matrix:
+        machine: [Intel, Apple Silicon]
+    runs-on: ${{ matrix.machine == 'Intel' && needs.config.outputs.intel-runner || needs.config.outputs.arm-runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rosetta 2
+        if: runner.arch == 'ARM64'
+        run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: engine
+          path: engine
+      - name: Check the archive's checksum
+        run: cd engine && shasum -a 256 -c ./*.sha256
+      - name: Install Steam and wait for it to connect
+        run: engines/scripts/check-steam.sh engine/schnitzel-engine-${{ needs.package.outputs.version }}.tar.xz "$RUNNER_TEMP/steam-check"
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: steam-check-logs-${{ runner.arch }}
+          path: ${{ runner.temp }}/steam-check/logs
+          retention-days: 7
+          if-no-files-found: ignore
+
   # Only for runs started with a release version, and only when the package check and both
   # prefix checks passed.
   # The release is a draft: Anston downloads it, installs it with Install from file in Schnitzel,
