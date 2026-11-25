@@ -28,10 +28,12 @@ let usage = """
     Usage: schnitzel-cli <command> ...
       install KIND FILE [--unverified]   Install from File (KIND: engine, dxvk, dxmt, libraries)
       download KIND [VERSION]            download from KIND's default source (default: the recommended version)
+      import-d3dmetal FOLDER             import D3DMetal from a Game Porting Toolkit folder, as Components does
       create NAME --engine VERSION       new Pfanne with the app's default components, then its Windows environment
       run NAME FILE [ARGS...]            run a Windows program as the app does; waits until it exits
-      run --winedebug CHANNELS NAME FILE [ARGS...]
-                                         the same with Wine's WINEDEBUG set to CHANNELS (for diagnosis only)
+      run [--winedebug CHANNELS] [--env KEY=VALUE]... NAME FILE [ARGS...]
+                                         the same with WINEDEBUG or other variables changed (for diagnosis only;
+                                         KEY= sets it empty, which Wine treats like unset for its own variables)
       set NAME graphics LAYER            change the graphics layer as the app's setting does (auto, d3dMetal, dxmt, dxvk, wineD3D)
       env NAME                           print the environment programs in NAME get
       stop NAME                          stop every Wine process in NAME
@@ -80,6 +82,10 @@ func run(_ arguments: [String]) async throws -> Int32 {
             print("installed \(installed.version) from \(chosen.downloadURL.absoluteString)")
         }
 
+    case ("import-d3dmetal", 1):
+        let imported = try await D3DMetalImport.importD3DMetal(from: URL(filePath: rest[0]), store: componentStore)
+        print("imported \(imported.version)")
+
     case ("create", 3...) where rest[1] == "--engine":
         var pfanne = try pfanneStore.create(name: rest[0], engine: rest[2])
         do {
@@ -100,8 +106,14 @@ func run(_ arguments: [String]) async throws -> Int32 {
     case ("run", 2...):
         var rest = rest
         var debug: [String: String] = [:]
-        if rest.first == "--winedebug", rest.count >= 4 {
-            debug["WINEDEBUG"] = rest[1]
+        while rest.count >= 4, rest.first == "--winedebug" || rest.first == "--env" {
+            if rest[0] == "--winedebug" {
+                debug["WINEDEBUG"] = rest[1]
+            } else {
+                let pair = rest[1].split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                guard pair.count == 2 else { throw Failure(description: "--env needs KEY=VALUE") }
+                debug[String(pair[0])] = String(pair[1])
+            }
             rest.removeFirst(2)
         }
         let pfanne = try pfanne(named: rest[0])
