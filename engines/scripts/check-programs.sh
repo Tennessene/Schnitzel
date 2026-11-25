@@ -11,6 +11,9 @@
 #   ENGINE_ARCHIVE  schnitzel-engine-<version>.tar.xz, with SHA256SUMS or <archive>.sha256 next to it
 #   Without program names, both are checked, in the order users are told to install them:
 #   the Rockstar Games Launcher first, then Steam.
+#   D3DMETAL=<Game Porting Toolkit folder> imports D3DMetal first (as Components does), so the
+#   Pfanne's Auto graphics use it, the path GTA V takes. D3DMetal is Apple's and is only ever
+#   read from the user's own download; it is never copied into the repository or a release.
 #
 # Runs on Anston's Mac before an engine or Pfanne-setup change is released (not in CI: on the
 # GitHub runners the Rockstar installer quits without installing anything). Keep WORK_DIR's
@@ -75,6 +78,7 @@ cleanup() {
         \( -iname "*.log" -o -iname "*.txt" -o -iname "*.json" \) -o -iname "dd_vcredist*.log" \) \
         -exec cp {} "$work/logs/rockstar/" \; 2>/dev/null || true
     find "$drive_c/Program Files/Rockstar Games" -maxdepth 2 > "$work/logs/rockstar/installed.txt" 2>&1 || true
+    cp "$drive_c"/users/*/Documents/"Rockstar Games"/Launcher/*.log "$work/logs/rockstar/" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -91,9 +95,18 @@ engine="$("$cli" install engine "$work/inbox/$name" | awk '/^installed/{print $2
 echo "ok      $engine installed from file"
 "$cli" download dxmt "$dxmt_version"
 "$cli" download dxvk "$dxvk_version"
+if [[ -n "${D3DMETAL:-}" ]]; then
+    "$cli" import-d3dmetal "$D3DMETAL"
+fi
 
 echo "== New Pfanne"
 "$cli" create "$pfanne" --engine "$engine"
+# Wine links the Windows user folders (Documents, Downloads, ...) to the Mac user's own. Give
+# the check its own empty folders instead, so programs can't read or change the user's files
+# (the Rockstar Games Launcher keeps its logs and settings in Documents).
+for link in "$drive_c"/users/*/*; do
+    if [[ -L "$link" ]]; then rm "$link"; mkdir "$link"; fi
+done
 "$cli" env "$pfanne" | grep -E '^(engine root|CX_ACTIVE_GRAPHICS_BACKEND|WINEMSYNC|ROSETTA_ADVERTISE_AVX)' | sed 's/^/        /'
 
 fetch() {
@@ -115,6 +128,15 @@ for program in "${programs[@]}"; do
             if ls "$social_club"/*.dll > /dev/null 2>&1; then ok=1; break; fi
             # DXMT's d3d11 lacks this; the launcher never gets further (seen every time).
             if grep -q "SwapDeviceContextState" "$SCHNITZEL_DATA_DIR/Logs/$pfanne/"*Rockstar*.log 2>/dev/null; then break; fi
+            # "The Rockstar Games Launcher failed to initialize!": its log stops the background
+            # service without the launcher's worker thread ever starting (seen with D3DMetal).
+            for launcher_log in "$drive_c"/users/*/Documents/"Rockstar Games"/Launcher/launcher*.log; do
+                if [[ -f "$launcher_log" ]] && grep -q "Stopping the background service" "$launcher_log" \
+                    && ! grep -q "\[Workr\]" "$launcher_log"; then
+                    echo "        the launcher failed to initialize ($(basename "$launcher_log"))" >&2
+                    break 2
+                fi
+            done
         done
         if (( ok )); then
             echo "ok      Social Club set up after $(( $(date +%s) - start )) s"
