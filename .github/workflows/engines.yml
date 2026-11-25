@@ -116,6 +116,7 @@ jobs:
     name: MinGW-w64 GCC for ${{ matrix.arch }} (M1)
     needs: [config, inputs]
     strategy:
+      fail-fast: false
       matrix:
         arch: [i686, x86_64]
     runs-on: ${{ needs.config.outputs.build-runner }}

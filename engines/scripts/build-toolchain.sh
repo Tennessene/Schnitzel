@@ -36,6 +36,8 @@ work="$output/work-toolchain-$arch"
 rm -rf "$prefix" "$work"
 mkdir -p "$prefix/licenses" "$work"
 
+# The bundled zlib in binutils and GCC doesn't compile with the macOS 26 SDK (its fdopen macro
+# clashes with <stdio.h>), so both use the Mac's own zlib (--with-system-zlib), as Homebrew does.
 # These are tools that run on this Mac, not part of the engine: build them with the plain
 # host compiler and without the engine's flags (deployment target, availability errors).
 unset CFLAGS CXXFLAGS LDFLAGS CPPFLAGS
@@ -47,7 +49,7 @@ unpack "$(input_archive "$inputs" binutils)" "$work/binutils"
 mkdir -p "$work/binutils-build"
 (cd "$work/binutils-build" && "$work/binutils/configure" --prefix="$prefix" --target="$target" --with-sysroot="$prefix" \
     --disable-multilib --disable-nls --disable-werror --enable-deterministic-archives \
-    --disable-gdb --disable-gdbserver --disable-sim --disable-gprofng > configure.log \
+    --disable-gdb --disable-gdbserver --disable-sim --disable-gprofng --with-system-zlib > configure.log \
     && make -j"$JOBS" > make.log && make install > install.log) \
     || { tail -40 "$work/binutils-build/"*.log >&2; exit 1; }
 
@@ -70,7 +72,7 @@ mkdir -p "$work/gcc-build"
 (cd "$work/gcc-build" && "$work/gcc/configure" --prefix="$prefix" --target="$target" \
     --enable-languages=c,c++ --disable-multilib --disable-nls --disable-werror \
     --enable-threads=win32 --enable-shared --enable-static --without-isl --disable-libstdcxx-pch \
-    --with-sysroot="$prefix" "${gcc_flags[@]+"${gcc_flags[@]}"}" > configure.log \
+    --with-sysroot="$prefix" --with-system-zlib "${gcc_flags[@]+"${gcc_flags[@]}"}" > configure.log \
     && make -j"$JOBS" all-gcc > make-gcc.log && make install-gcc > install-gcc.log) \
     || { tail -60 "$work/gcc-build/"*.log >&2; exit 1; }
 
