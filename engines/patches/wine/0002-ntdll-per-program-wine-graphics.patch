@@ -1,0 +1,91 @@
+Schnitzel patch for CodeWeavers' Wine (CrossOver 26.3.0 source drop)
+
+ntdll: per-program Wine graphics DLLs.
+
+With D3DMetal (or DXMT) in a Pfanne, Schnitzel's engine assembly holds their DLLs in place of
+Wine's own d3d DLLs. The Rockstar Games Launcher then fails to initialize: it draws with
+Direct2D, Wine's d2d1 needs a Direct3D 10.1 device, and D3DMetal's dxgi.dll only has a stub
+for DXGID3D10CreateDevice. CrossOver gives that launcher Wine's own DLLs (observed with lsof)
+through its closed cxcompatdb.so, which calls CodeWeavers' prepend_dll_path() per program.
+
+If the main program's Windows path ends with an entry of SCHNITZEL_WINE_GRAPHICS_PROGRAMS
+(';'-separated), the folder in SCHNITZEL_WINE_GRAPHICS_DLLPATH is searched first for builtin
+DLLs in that process. Schnitzel sets both and puts Wine's own copies of the replaced DLLs in
+that folder (SCHNITZEL_PLAN.md, "Rockstar Games Launcher with D3DMetal 3.0").
+
+Written for Schnitzel from scratch; licensed like Wine (LGPL-2.1-or-later).
+
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -382,8 +382,63 @@
+     dll_paths = new_dll_paths;
+     if (path_len > dll_path_maxlen)
+         dll_path_maxlen = path_len;
++}
++
++/* Schnitzel: per-program Wine graphics.
++ *
++ * Schnitzel puts D3DMetal's or DXMT's DLLs in place of Wine's own d3d DLLs. Some programs
++ * need Wine's own ones instead: the Rockstar Games Launcher draws with Direct2D, which needs
++ * a Direct3D 10.1 device, and D3DMetal's dxgi doesn't implement DXGID3D10CreateDevice
++ * (SCHNITZEL_PLAN.md, "Rockstar Games Launcher with D3DMetal 3.0"). CrossOver does the same
++ * per program through its closed cxcompatdb.so and prepend_dll_path() above.
++ *
++ * SCHNITZEL_WINE_GRAPHICS_DLLPATH is a folder that holds Wine's own copies of the replaced
++ * DLLs (with x86_64-windows/ and x86_64-unix/ inside). SCHNITZEL_WINE_GRAPHICS_PROGRAMS is a
++ * ';'-separated list of program paths or file names (ASCII, case-insensitive). If the main
++ * program's Windows path ends with one of them (after a backslash), that folder is searched first
++ * for builtin DLLs in this process only. Other processes, children included, are unchanged
++ * unless they are on the list themselves.
++ *
++ * Written for Schnitzel from scratch; licensed like Wine (LGPL-2.1-or-later). */
++static BOOL schnitzel_program_matches( const WCHAR *path, const char *entry )
++{
++    size_t path_len = wcslen( path ), entry_len = strlen( entry ), i;
++
++    if (!entry_len || entry_len > path_len) return FALSE;
++    for (i = 0; i < entry_len; i++)
++    {
++        WCHAR a = path[path_len - entry_len + i];
++        unsigned char b = entry[i];
++
++        if (a == '/') a = '\\';
++        if (b == '/') b = '\\';
++        if (a >= 'A' && a <= 'Z') a += 'a' - 'A';
++        if (b >= 'A' && b <= 'Z') b += 'a' - 'A';
++        if (a != b) return FALSE;
++    }
++    if (entry_len == path_len) return TRUE;
++    return path[path_len - entry_len - 1] == '\\' || path[path_len - entry_len - 1] == '/';
+ }
+ 
++static void schnitzel_wine_graphics( const WCHAR *app_path )
++{
++    const char *dir = getenv( "SCHNITZEL_WINE_GRAPHICS_DLLPATH" );
++    const char *programs = getenv( "SCHNITZEL_WINE_GRAPHICS_PROGRAMS" );
++    char *list, *entry, *next;
++
++    if (!app_path || !dir || !*dir || !programs || !*programs) return;
++    if (!(list = strdup( programs ))) return;
++    for (entry = list; entry; entry = next)
++    {
++        if ((next = strchr( entry, ';' ))) *next++ = 0;
++        if (!schnitzel_program_matches( app_path, entry )) continue;
++        TRACE( "%s uses Wine's own graphics DLLs from %s\n", debugstr_w(app_path), debugstr_a(dir) );
++        prepend_dll_path( strdup( dir ) );
++        break;
++    }
++    free( list );
++}
++
+ static void set_dll_path(void)
+ {
+     char *p, *path = getenv( "WINEDLLPATH" );
+@@ -2231,6 +2286,7 @@
+     init_startup_info();
+     *(ULONG_PTR *)&peb->CloudFileFlags = get_image_address();
+     set_load_order_app_name( main_wargv[0] );
++    schnitzel_wine_graphics( main_wargv[0] );  /* Schnitzel */
+     init_thread_stack( teb, 0, 0, 0 );
+     NtCreateKeyedEvent( &keyed_event, GENERIC_READ | GENERIC_WRITE, NULL, 0 );
+     load_ntdll();
