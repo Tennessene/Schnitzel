@@ -61,8 +61,12 @@ cleanup() {
     # Keep the Pfanne's run logs and the programs' own logs for debugging.
     cp -R "$SCHNITZEL_DATA_DIR/Logs/." "$work/logs/" 2>/dev/null || true
     mkdir -p "$work/logs/rockstar"
-    find "$drive_c/users" \( -ipath "*Rockstar Games/Launcher/*.log" -o -iname "prelauncher_events.json" \
-        -o -ipath "*Rockstar Games/Social Club/*.log" \) -exec cp {} "$work/logs/rockstar/" \; 2>/dev/null || true
+    # The installer's and launcher's own logs (not Social Club's browser cache), the Visual C++
+    # installers' logs, and what got installed.
+    find "$drive_c/users" -type f \( -ipath "*/Rockstar Games/*" -not -ipath "*/Renderer/*" \
+        \( -iname "*.log" -o -iname "*.txt" -o -iname "*.json" \) -o -iname "dd_vcredist*.log" \) \
+        -exec cp {} "$work/logs/rockstar/" \; 2>/dev/null || true
+    find "$drive_c/Program Files/Rockstar Games" -maxdepth 2 > "$work/logs/rockstar/installed.txt" 2>&1 || true
 }
 trap cleanup EXIT
 
