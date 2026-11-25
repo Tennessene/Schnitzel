@@ -42,6 +42,9 @@ mkdir -p "$prefix/licenses" "$work"
 # host compiler and without the engine's flags (deployment target, availability errors).
 unset CFLAGS CXXFLAGS LDFLAGS CPPFLAGS
 export CC=clang CXX=clang++
+# The manuals (.info) aren't needed, and the runners have no Texinfo: when make decides a manual
+# is out of date (the unpacked files' times can make it think so), it would fail with error 127.
+export MAKEINFO=true   # also passed to make below: configure resets it when its version check fails
 export PATH="$prefix/bin:$PATH"
 
 step "binutils $(input_field binutils version)"
@@ -50,7 +53,7 @@ mkdir -p "$work/binutils-build"
 (cd "$work/binutils-build" && "$work/binutils/configure" --prefix="$prefix" --target="$target" --with-sysroot="$prefix" \
     --disable-multilib --disable-nls --disable-werror --enable-deterministic-archives \
     --disable-gdb --disable-gdbserver --disable-sim --disable-gprofng --with-system-zlib > configure.log \
-    && make -j"$JOBS" > make.log && make install > install.log) \
+    && make MAKEINFO=true -j"$JOBS" > make.log && make MAKEINFO=true install > install.log) \
     || { tail -40 "$work/binutils-build/"*.log >&2; exit 1; }
 
 step "MinGW-w64 headers $(input_field mingw-w64 version)"
@@ -73,7 +76,7 @@ mkdir -p "$work/gcc-build"
     --enable-languages=c,c++ --disable-multilib --disable-nls --disable-werror \
     --enable-threads=win32 --enable-shared --enable-static --without-isl --disable-libstdcxx-pch \
     --with-sysroot="$prefix" --with-system-zlib "${gcc_flags[@]+"${gcc_flags[@]}"}" > configure.log \
-    && make -j"$JOBS" all-gcc > make-gcc.log && make install-gcc > install-gcc.log) \
+    && make MAKEINFO=true -j"$JOBS" all-gcc > make-gcc.log && make MAKEINFO=true install-gcc > install-gcc.log) \
     || { tail -60 "$work/gcc-build/"*.log >&2; exit 1; }
 
 step "MinGW-w64 runtime"
@@ -84,7 +87,7 @@ mkdir -p "$work/crt-build"
     || { tail -40 "$work/crt-build/"*.log >&2; exit 1; }
 
 step "GCC runtime libraries (libgcc, libstdc++)"
-(cd "$work/gcc-build" && make -j"$JOBS" > make.log && make install > install.log) \
+(cd "$work/gcc-build" && make MAKEINFO=true -j"$JOBS" > make.log && make MAKEINFO=true install > install.log) \
     || { tail -60 "$work/gcc-build/make.log" >&2; exit 1; }
 
 step "Licenses"
