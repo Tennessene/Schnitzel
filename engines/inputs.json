@@ -14,23 +14,96 @@
       "checksumSource": "computed by Schnitzel on first download (CodeWeavers publishes no checksum); two separate downloads matched",
       "milestone": "M2",
       "provides": [
-        { "component": "wine", "path": "sources/wine", "upstreamVersion": "11.0", "modifiedByCodeWeavers": true },
-        { "component": "gnutls", "path": "sources/gnutls/gnutls", "upstreamVersion": "3.8.3", "modifiedByCodeWeavers": true },
-        { "component": "moltenvk", "path": "sources/moltenvk", "upstreamVersion": "1.2.10", "modifiedByCodeWeavers": true },
-        { "component": "vkd3d", "path": "sources/vkd3d", "upstreamVersion": "1.18 plus later development changes", "modifiedByCodeWeavers": true },
-        { "component": "dxvk", "path": "sources/dxvk", "upstreamVersion": "1.10.3", "modifiedByCodeWeavers": true }
+        {
+          "component": "wine",
+          "path": "sources/wine",
+          "upstreamVersion": "11.0",
+          "modifiedByCodeWeavers": true
+        },
+        {
+          "component": "gnutls",
+          "path": "sources/gnutls/gnutls",
+          "upstreamVersion": "3.8.3",
+          "modifiedByCodeWeavers": true
+        },
+        {
+          "component": "moltenvk",
+          "path": "sources/moltenvk",
+          "upstreamVersion": "1.2.10",
+          "modifiedByCodeWeavers": true
+        },
+        {
+          "component": "vkd3d",
+          "path": "sources/vkd3d",
+          "upstreamVersion": "1.18 plus later development changes",
+          "modifiedByCodeWeavers": true
+        },
+        {
+          "component": "dxvk",
+          "path": "sources/dxvk",
+          "upstreamVersion": "1.10.3",
+          "modifiedByCodeWeavers": true
+        }
       ]
     },
     {
-      "id": "llvm-mingw",
-      "name": "llvm-mingw toolchain (Windows-side compiler)",
-      "version": "20261117",
-      "file": "llvm-mingw-20261117-ucrt-macos-universal.tar.xz",
-      "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20261117/llvm-mingw-20261117-ucrt-macos-universal.tar.xz",
-      "sha256": "98d340bbb8d46b09ad6886ffba88bd9d5415e131c316de48e6bd7647377446aa",
-      "size": 125197636,
-      "license": "Apache-2.0 WITH LLVM-exception (toolchain); MinGW-w64 runtime: ZPL-2.1 and public domain",
-      "checksumSource": "GitHub release asset digest",
+      "id": "binutils",
+      "name": "GNU Binutils (assembler and linker for the Windows side)",
+      "version": "2.41",
+      "file": "binutils-2.41.tar.xz",
+      "url": "https://ftp.gnu.org/gnu/binutils/binutils-2.41.tar.xz",
+      "sha256": "ae9a5789e23459e59606e6714723f2d3ffc31c03174191ef0d015bdf06007450",
+      "size": 26765692,
+      "license": "GPL-3.0-or-later (tools only; nothing of it is in the engine)",
+      "checksumSource": "computed on download; two separate downloads from different servers matched; matches CrossOver 26.3's PE linker version (2.41)",
+      "milestone": "M1"
+    },
+    {
+      "id": "gcc",
+      "name": "GCC (Windows-side C and C++ compiler)",
+      "version": "13.2.0",
+      "file": "gcc-13.2.0.tar.xz",
+      "url": "https://ftp.gnu.org/gnu/gcc/gcc-13.2.0/gcc-13.2.0.tar.xz",
+      "sha256": "e275e76442a6067341a27f04c5c6b83d8613144004c0413528863dc6b5c743da",
+      "size": 87858592,
+      "license": "GPL-3.0-or-later; libgcc and libstdc++ under the GCC Runtime Library Exception 3.1",
+      "checksumSource": "computed on download; two separate downloads from different servers matched; the version CrossOver 26.3's Wine DLLs were built with",
+      "milestone": "M1"
+    },
+    {
+      "id": "mingw-w64",
+      "name": "MinGW-w64 headers and runtime",
+      "version": "v11.0.1",
+      "file": "mingw-w64-v11.0.1.tar.bz2",
+      "url": "https://downloads.sourceforge.net/project/mingw-w64/mingw-w64/mingw-w64-release/mingw-w64-v11.0.1.tar.bz2",
+      "sha256": "3f66bce069ee8bed7439a1a13da7cb91a5e67ea6170f21317ac7f5794625ee10",
+      "size": 10057401,
+      "license": "ZPL-2.1 and public domain (runtime); see its COPYING files",
+      "checksumSource": "computed on download; two separate downloads from different servers matched",
+      "milestone": "M1"
+    },
+    {
+      "id": "mpfr",
+      "name": "MPFR (needed to build GCC)",
+      "version": "4.2.1",
+      "file": "mpfr-4.2.1.tar.xz",
+      "url": "https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.1.tar.xz",
+      "sha256": "277807353a6726978996945af13e52829e3abd7a9a5b7fb2793894e18f1fcbb2",
+      "size": 1493608,
+      "license": "LGPL-3.0-or-later (tools only)",
+      "checksumSource": "computed on download; two separate downloads from different servers matched",
+      "milestone": "M1"
+    },
+    {
+      "id": "mpc",
+      "name": "MPC (needed to build GCC)",
+      "version": "1.3.1",
+      "file": "mpc-1.3.1.tar.gz",
+      "url": "https://ftp.gnu.org/gnu/mpc/mpc-1.3.1.tar.gz",
+      "sha256": "ab642492f5cf882b74aa0cb730cd410a81edcdbec895183ce930e706c1c759b8",
+      "size": 773573,
+      "license": "LGPL-3.0-or-later (tools only)",
+      "checksumSource": "computed on download; two separate downloads from different servers matched",
       "milestone": "M1"
     },
     {
@@ -43,7 +116,7 @@
       "size": 2094196,
       "license": "LGPL-3.0-or-later OR GPL-2.0-or-later",
       "checksumSource": "computed; matches the SHA-256 published for gmp-6.3.0.tar.xz",
-      "milestone": "M2"
+      "milestone": "M1"
     },
     {
       "id": "nettle",

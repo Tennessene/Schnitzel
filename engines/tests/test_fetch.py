@@ -35,7 +35,7 @@ class ValidateTests(unittest.TestCase):
     def test_the_real_inputs_file_is_valid(self):
         inputs = fetch.validate(fetch.load(INPUTS))
         ids = {entry["id"] for entry in inputs}
-        for required in ("crossover-sources", "llvm-mingw", "gmp", "nettle", "freetype", "sdl2",
+        for required in ("crossover-sources", "binutils", "gcc", "mingw-w64", "mpfr", "mpc", "gmp", "nettle", "freetype", "sdl2",
                          "libinotify-kqueue", "dxmt", "dxmt-license"):
             self.assertIn(required, ids)
 
@@ -61,7 +61,9 @@ class ValidateTests(unittest.TestCase):
     def test_milestone_selection(self):
         inputs = fetch.validate(fetch.load(INPUTS))
         m1 = {entry["id"] for entry in fetch.select(inputs, milestone="M1")}
-        self.assertEqual(m1, {"llvm-mingw"})
+        # M1 is the Windows-side toolchain: MinGW-w64 GCC and what building it needs.
+        self.assertEqual(m1, {"binutils", "gcc", "mingw-w64", "mpfr", "mpc", "gmp"})
+        self.assertNotIn("llvm-mingw", {e["id"] for e in inputs})
         self.assertIn("crossover-sources", {e["id"] for e in fetch.select(inputs, milestone="M2")})
         with self.assertRaises(fetch.InputError):
             fetch.select(inputs, only=["nope"])
