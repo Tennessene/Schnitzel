@@ -93,12 +93,20 @@ import Testing
 }
 
 @Suite struct GraphicsTests {
-    @Test func autoPrefersD3DMetalThenDXMT() throws {
+    @Test func autoPrefersD3DMetalThenWineD3D() throws {
         let all = ComponentPins(engine: "E", dxvk: "V", dxmt: "M", d3dMetal: "D")
         #expect(try ResolvedGraphics.resolve(layer: .auto, pins: all).provider == .d3dMetal)
 
+        // A Pfanne with DXMT installed but no D3DMetal (what every new Pfanne gets once DXMT
+        // is downloaded) must not use DXMT for everything: the Rockstar Games Launcher stops
+        // at DXMT's missing SwapDeviceContextState (November 2026, Schnitzel engine 26.3.0-3).
         let noD3DMetal = ComponentPins(engine: "E", dxvk: "V", dxmt: "M")
-        #expect(try ResolvedGraphics.resolve(layer: .auto, pins: noD3DMetal).provider == .dxmt)
+        #expect(try ResolvedGraphics.resolve(layer: .auto, pins: noD3DMetal)
+            == ResolvedGraphics(provider: .wineD3D, defaultSlot: .builtin, installsDXVK: true))
+        // DXMT is still there when chosen.
+        #expect(try ResolvedGraphics.resolve(layer: .dxmt, pins: noD3DMetal).provider == .dxmt)
+        // The DXVK layer keeps Auto's builtin provider for the other DLLs, so not DXMT either.
+        #expect(try ResolvedGraphics.resolve(layer: .dxvk, pins: noD3DMetal).provider == .wineD3D)
 
         let nothing = ComponentPins(engine: "E")
         let resolved = try ResolvedGraphics.resolve(layer: .auto, pins: nothing)

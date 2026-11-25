@@ -105,6 +105,9 @@ struct PfanneDetailView: View {
                     ForEach(GraphicsLayer.allCases, id: \.self) { Text($0.pretty()).tag($0) }
                 }
                 LabeledContent("In use", value: resolvedDescription)
+                Text("Auto uses D3DMetal if it's imported, otherwise WineD3D. DXMT is faster for many games but breaks some launchers, such as the Rockstar Games Launcher, so it's only used when you choose it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 componentPicker(.d3dMetal, title: "D3DMetal", allowNone: true)
                 componentPicker(.dxmt, title: "DXMT", allowNone: true)
                 componentPicker(.dxvk, title: "DXVK", allowNone: true)

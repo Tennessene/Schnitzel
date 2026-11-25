@@ -20,7 +20,10 @@ import Foundation
 
 /// The graphics layer a user picks for a Pfanne.
 public enum GraphicsLayer: String, CaseIterable, Codable, Sendable {
-    /// D3DMetal if imported, otherwise DXMT if installed, otherwise WineD3D.
+    /// D3DMetal if imported, otherwise WineD3D. Never DXMT: DXMT's d3d11 lacks
+    /// `SwapDeviceContextState`, which Chromium-based launchers call (the Rockstar Games
+    /// Launcher never gets past it), and Auto applies to every program in the Pfanne.
+    /// DXMT is used only when chosen (see SCHNITZEL_PLAN.md, "Graphics layers").
     case auto
     case d3dMetal
     case dxmt
@@ -101,11 +104,10 @@ public struct ResolvedGraphics: Equatable, Sendable {
         self.installsDXVK = installsDXVK
     }
 
-    /// The best builtin provider among the pinned components.
-    static func bestProvider(pins: ComponentPins) -> BuiltinProvider {
-        if pins.d3dMetal != nil { return .d3dMetal }
-        if pins.dxmt != nil { return .dxmt }
-        return .wineD3D
+    /// The builtin provider Auto picks: D3DMetal if pinned, otherwise WineD3D. DXMT is
+    /// never picked automatically (see `GraphicsLayer.auto`).
+    static func autoProvider(pins: ComponentPins) -> BuiltinProvider {
+        pins.d3dMetal != nil ? .d3dMetal : .wineD3D
     }
 
     /// Resolves `layer` against `pins`. Throws if the layer needs a component that isn't pinned.
@@ -113,7 +115,7 @@ public struct ResolvedGraphics: Equatable, Sendable {
         let hasDXVK = pins.dxvk != nil
         switch layer {
         case .auto:
-            return ResolvedGraphics(provider: bestProvider(pins: pins), defaultSlot: .builtin, installsDXVK: hasDXVK)
+            return ResolvedGraphics(provider: autoProvider(pins: pins), defaultSlot: .builtin, installsDXVK: hasDXVK)
         case .d3dMetal:
             guard pins.d3dMetal != nil else { throw GraphicsError.notPinned(.d3dMetal) }
             return ResolvedGraphics(provider: .d3dMetal, defaultSlot: .builtin, installsDXVK: hasDXVK)
@@ -122,8 +124,8 @@ public struct ResolvedGraphics: Equatable, Sendable {
             return ResolvedGraphics(provider: .dxmt, defaultSlot: .builtin, installsDXVK: hasDXVK)
         case .dxvk:
             guard hasDXVK else { throw GraphicsError.notPinned(.dxvk) }
-            // Keep the best builtin provider too, so single games can still use it later.
-            return ResolvedGraphics(provider: bestProvider(pins: pins), defaultSlot: .native, installsDXVK: true)
+            // Keep Auto's builtin provider too, so single games can still use it later.
+            return ResolvedGraphics(provider: autoProvider(pins: pins), defaultSlot: .native, installsDXVK: true)
         case .wineD3D:
             return ResolvedGraphics(provider: .wineD3D, defaultSlot: .builtin, installsDXVK: hasDXVK)
         }
