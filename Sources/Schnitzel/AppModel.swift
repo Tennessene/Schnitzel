@@ -85,19 +85,14 @@ final class AppModel {
         installed[kind] ?? []
     }
 
-    /// The version new Pfannen use: the newest one installed from the kind's default
-    /// source, otherwise the newest one installed from anywhere.
+    /// The version new Pfannen use (see `PfanneDefaults.preferred`).
     func preferred(_ kind: ComponentKind) -> InstalledComponent? {
-        let usable = installed(kind).filter { knownProblem(of: $0) == nil }
-        let defaultID = ComponentSource.defaultSource(for: kind)?.id
-        return usable.first { $0.manifest.sourceID == defaultID } ?? usable.first
+        PfanneDefaults.preferred(kind, among: installed(kind))
     }
 
-    /// Whether a Pfanne with this engine needs the runtime-libraries component: only
-    /// engines that don't bring their own libraries do.
+    /// Whether a Pfanne with this engine needs the runtime-libraries component.
     func needsLibraries(engine version: String?) -> Bool {
-        guard let version, let engine = installed(.engine).first(where: { $0.version == version }) else { return true }
-        return !engine.includesRuntimeLibraries
+        PfanneDefaults.needsLibraries(engine: version, engines: installed(.engine))
     }
 
     /// Whether everything needed to create a working Pfanne is installed: an engine, and
@@ -109,7 +104,7 @@ final class AppModel {
 
     /// Why an installed component doesn't work in Schnitzel, if that is known.
     func knownProblem(of component: InstalledComponent) -> String? {
-        component.componentSource?.knownProblems[component.version]
+        PfanneDefaults.knownProblem(of: component)
     }
 
     func loadCatalog(_ source: ComponentSource, force: Bool = false) async {
@@ -232,11 +227,8 @@ final class AppModel {
         do {
             var pfanne = try pfanneStore.create(name: name, engine: engine)
             created = pfanne
-            pfanne.settings.pins.d3dMetal = preferred(.d3dMetal)?.version
-            pfanne.settings.pins.dxmt = preferred(.dxmt)?.version
-            pfanne.settings.pins.dxvk = preferred(.dxvk)?.version
-            // Engines with their own libraries (Schnitzel's own) don't get the component.
-            pfanne.settings.pins.libraries = needsLibraries(engine: engine) ? preferred(.libraries)?.version : nil
+            // The same choice `schnitzel-cli create` makes (PfanneDefaults).
+            pfanne.settings.pins = PfanneDefaults.pins(engine: engine) { installed($0) }
             try pfanne.save()
             reload()
             selection = pfanne.id
