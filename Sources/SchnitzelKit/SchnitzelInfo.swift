@@ -30,8 +30,22 @@ public enum SchnitzelInfo {
     /// User-facing name for several Wine prefixes.
     public static let pfannePlural = "Pfannen"
 
+    /// Environment variable that moves all of Schnitzel's data (Pfannen, components, logs)
+    /// into one folder: `<folder>/Application Support` and `<folder>/Logs`. Used by
+    /// `schnitzel-cli` in the CI checks and in local experiments, so they never touch the
+    /// user's own Pfannen. The app doesn't set it.
+    public static let dataFolderVariable = "SCHNITZEL_DATA_DIR"
+
+    static func dataFolderOverride(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        guard let path = environment[dataFolderVariable], !path.isEmpty else { return nil }
+        return URL(filePath: path, directoryHint: .isDirectory)
+    }
+
     /// `~/Library/Application Support/Schnitzel`
     public static func applicationSupportFolder(fileManager: FileManager = .default) -> URL {
+        if let override = dataFolderOverride() {
+            return override.appending(path: "Application Support", directoryHint: .isDirectory)
+        }
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appending(path: appName, directoryHint: .isDirectory)
     }
@@ -51,6 +65,9 @@ public enum SchnitzelInfo {
 
     /// `~/Library/Logs/Schnitzel`
     public static func logsFolder(fileManager: FileManager = .default) -> URL {
+        if let override = dataFolderOverride() {
+            return override.appending(path: "Logs", directoryHint: .isDirectory)
+        }
         let library = fileManager.urls(for: .libraryDirectory, in: .userDomainMask)[0]
         return library.appending(path: "Logs", directoryHint: .isDirectory)
             .appending(path: appName, directoryHint: .isDirectory)

@@ -19,6 +19,12 @@ import Testing
         #expect(SchnitzelInfo.componentsFolder().deletingLastPathComponent() == support)
     }
 
+    @Test func dataFolderCanBeMovedForChecks() {
+        #expect(SchnitzelInfo.dataFolderOverride([:]) == nil)
+        #expect(SchnitzelInfo.dataFolderOverride([SchnitzelInfo.dataFolderVariable: ""]) == nil)
+        #expect(SchnitzelInfo.dataFolderOverride([SchnitzelInfo.dataFolderVariable: "/tmp/check"])?.path == "/tmp/check")
+    }
+
     @Test func userFacingTermsUsePfanne() {
         #expect(SchnitzelInfo.pfanneSingular == "Pfanne")
         #expect(SchnitzelInfo.pfannePlural == "Pfannen")
